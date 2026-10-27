@@ -1,0 +1,21 @@
+# Fine-tune a YOLO detector on the Roboflow football-players-detection dataset.
+# Run:  python -m src.detection.train --config configs/train_detector.yaml
+# Keys under `train` are passed straight to ultralytics `model.train()`.
+
+base_model: yolo11m.pt          # downloaded automatically; yolo11n.pt / yolo11s.pt for faster CPU tests
+data: data/datasets/football-players-detection-10/data.yaml
+export_to: models/football-player-detection.pt   # best.pt is copied here when training finishes
+
+train:
+  epochs: 50
+  imgsz: 1280                   # high resolution matters for the small ball
+  batch: 8                      # lower to 2-4 on GPUs with < 12 GB, or use -1 for auto
+  patience: 20
+  mosaic: 1.0
+  close_mosaic: 10
+  fliplr: 0.5
+  degrees: 0.0                  # broadcast footage is never rotated
+  workers: 4
+  project: runs/detect
+  name: football-players
+  plots: true

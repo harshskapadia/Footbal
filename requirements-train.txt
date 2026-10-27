@@ -1,0 +1,4 @@
+# Extra dependencies for downloading Roboflow datasets (training only).
+-r requirements.txt
+roboflow==1.7.3
+gdown==6.4.2

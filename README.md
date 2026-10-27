@@ -10,7 +10,7 @@ heatmaps and a 2D minimap.
 | Stage | Status |
 |---|---|
 | 1. Setup (structure, config, env) | done |
-| 2. Detection (YOLO, sliced ball inference, fine-tuning) | in progress |
+| 2. Detection (YOLO, sliced ball inference, fine-tuning) | done |
 | 3. Tracking (ByteTrack, ball interpolation) | todo |
 | 4. Team assignment (shirt colour K-means) | todo |
 | 5. Pitch mapping (keypoints, homography) | todo |
@@ -34,7 +34,7 @@ data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
 outputs/               generated videos and stats (not committed)
 notebooks/             exploration notebooks
-scripts/               asset download helpers
+scripts/               asset download and smoke-clip helpers
 tests/                 pytest suite
 ```
 
@@ -122,6 +122,19 @@ Outputs:
 - `outputs/<clip>_detections.mp4`: annotated video
 - `outputs/<clip>_detections.csv`: one row per box
   (`frame, class_id, class_name, confidence, x1, y1, x2, y2`)
+
+For a quick check without football data, build a short clip from the sample images
+that ship with Ultralytics. These are not football frames; the clip only proves the
+pipeline runs:
+
+```bash
+python scripts/make_smoke_clip.py --out data/raw/smoke.mp4
+python -m src.detect --input data/raw/smoke.mp4
+```
+
+Measured on a 4-core CPU with the `yolo11n` fallback and slicing on: about 1.7 fps
+at 1280×720. Expect much slower speeds with the YOLOv8x football models on CPU, so use
+`--max-frames` while testing, or a GPU.
 
 The ball is often only 5–15 px wide in broadcast footage. With `ball.use_slicing`
 on, each frame is cut into overlapping 640×640 tiles (`supervision.InferenceSlicer`).

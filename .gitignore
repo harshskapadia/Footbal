@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Data, weights and outputs (large / licensed; see README for downloads)
+data/raw/*
+data/datasets/*
+models/*
+outputs/*
+!data/raw/.gitkeep
+!data/datasets/.gitkeep
+!models/.gitkeep
+!outputs/.gitkeep
+runs/
+*.pt
+*.onnx
+*.mp4
+*.avi
+
+# Notebooks / IDE / OS
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store
+.env

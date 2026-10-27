@@ -1,0 +1,52 @@
+# Central configuration for the football analytics pipeline.
+# All relative paths are resolved against the repository root.
+
+paths:
+  input_video: data/raw/0bfacc_0.mp4      # see README "Data" for where to get it
+  output_dir: outputs
+  models_dir: models
+  datasets_dir: data/datasets
+
+device: auto            # auto | cpu | cuda | cuda:0 | mps
+
+models:
+  # Football-specific detector (classes: ball, goalkeeper, player, referee).
+  # Download or fine-tune it (README "Models"). If missing, the COCO fallback is used.
+  player_detector: models/football-player-detection.pt
+  # Optional dedicated ball detector; if missing, the player detector is used for the ball too.
+  ball_detector: models/football-ball-detection.pt
+  # Pitch keypoint model (stage 5).
+  pitch_detector: models/football-pitch-detection.pt
+  # General COCO model, auto-downloaded from the Ultralytics GitHub releases.
+  fallback_detector: models/yolo11n.pt
+
+detection:
+  conf: 0.3
+  iou: 0.5
+  imgsz: 1280
+  # Map model class names -> canonical classes. Unlisted classes are dropped.
+  class_map:
+    ball: ball
+    football: ball
+    goalkeeper: goalkeeper
+    player: player
+    referee: referee
+    # COCO fallback model has no referee/goalkeeper classes
+    person: player
+    sports ball: ball
+
+ball:
+  use_slicing: true      # tile the frame so the tiny ball is seen at higher resolution
+  slice_wh: [640, 640]
+  overlap_wh: [128, 128]
+  conf: 0.15
+  iou: 0.1
+  imgsz: 640
+
+output:
+  max_frames: null       # limit frames for quick runs (null = whole clip)
+
+# --- Used from later stages onwards --------------------------------------
+pitch:
+  length_m: 105.0
+  width_m: 68.0

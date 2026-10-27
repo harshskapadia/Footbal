@@ -1,0 +1,9 @@
+[project]
+name = "football-analytics"
+version = "0.1.0"
+description = "Broadcast football analytics with YOLO, ByteTrack and homography"
+requires-python = ">=3.11,<3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

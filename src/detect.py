@@ -2,25 +2,27 @@
 
 Example:
     python -m src.detect --input data/raw/0bfacc_0.mp4 --max-frames 150
+    # -> outputs/0bfacc_0/detections.csv and detections.mp4
 """
 
 from __future__ import annotations
 
-import argparse
+import contextlib
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import supervision as sv
-from tqdm import tqdm
 
 from src.detection.classes import BALL
 from src.detection.detector import ObjectDetector, build_detector, keep_best_ball
 from src.detection.io import CSV_COLUMNS, detections_to_rows
 from src.detection.slicing import SlicedBallDetector, build_ball_detector
-from src.utils.config import load_config, resolve_path
+from src.utils.cli import base_parser, make_context
 from src.utils.device import select_device
+from src.utils.progress import ProgressCallback, progress
 from src.utils.video import get_video_info, open_writer, read_frames
 from src.visualization.draw import DetectionAnnotator
 
@@ -44,68 +46,62 @@ def detect_frame(
 
 
 def run_detection(
-    input_path: Path, output_dir: Path, cfg: dict, max_frames: int | None = None
-) -> tuple[Path, Path]:
-    """Run detection over a video and write the annotated video plus CSV.
+    input_path: Path,
+    cfg: dict[str, Any],
+    max_frames: int | None = None,
+    video_out: Path | None = None,
+    callback: ProgressCallback | None = None,
+) -> pd.DataFrame:
+    """Run detection over a clip.
+
+    Args:
+        input_path: Input video.
+        cfg: Loaded config.
+        max_frames: Only process the first N frames.
+        video_out: If given, also write an annotated video here.
+        callback: Optional progress callback ``(fraction, stage)``.
 
     Returns:
-        Paths of the annotated video and the detections CSV.
+        One row per box (see ``src.detection.io.CSV_COLUMNS``).
     """
     device = select_device(cfg.get("device", "auto"))
-    log.info("Using device: %s", device)
+    log.info("Detection device: %s", device)
     detector = build_detector(cfg, device)
     ball_detector = build_ball_detector(cfg, device) if cfg["ball"]["use_slicing"] else None
     annotator = DetectionAnnotator()
-
     info = get_video_info(input_path)
-    total = min(info.total_frames or 0, max_frames or info.total_frames or 0) or None
-    video_out = output_dir / f"{input_path.stem}_detections.mp4"
-    csv_out = output_dir / f"{input_path.stem}_detections.csv"
+    total = min(info.total_frames, max_frames) if max_frames else info.total_frames
 
     rows: list[dict] = []
     n_frames = 0
     start = time.perf_counter()
-    with open_writer(video_out, info) as sink:
-        for i, frame in enumerate(tqdm(read_frames(input_path, max_frames), total=total, desc="detect")):
+    with contextlib.ExitStack() as stack:
+        sink = stack.enter_context(open_writer(video_out, info)) if video_out else None
+        for i, frame in enumerate(progress(read_frames(input_path, max_frames), total, "detect", callback)):
             detections = detect_frame(frame, detector, ball_detector)
             rows.extend(detections_to_rows(i, detections))
-            sink.write_frame(annotator(frame, detections))
+            if sink is not None:
+                sink.write_frame(annotator(frame, detections))
             n_frames += 1
     elapsed = time.perf_counter() - start
 
     df = pd.DataFrame(rows, columns=CSV_COLUMNS)
-    df.to_csv(csv_out, index=False)
     log.info("%d frames in %.1fs (%.2f fps)", n_frames, elapsed, n_frames / max(elapsed, 1e-9))
     log.info("Counts per class: %s", df["class_name"].value_counts().to_dict())
-    return video_out, csv_out
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments."""
-    p = argparse.ArgumentParser(description="Detect players, referees, goalkeepers and the ball.")
-    p.add_argument("--input", type=Path, help="Input video (default: paths.input_video in config)")
-    p.add_argument("--output-dir", type=Path, help="Output directory (default: paths.output_dir)")
-    p.add_argument("--config", type=Path, default=None, help="Config YAML (default: config.yaml)")
-    p.add_argument("--max-frames", type=int, default=None, help="Only process the first N frames")
-    p.add_argument("--device", default=None, help="Override device: auto, cpu, cuda:0, mps")
-    p.add_argument("--no-slicing", action="store_true", help="Disable sliced ball inference")
-    return p.parse_args(argv)
+    return df
 
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    args = parse_args(argv)
-    cfg = load_config(args.config)
-    if args.device:
-        cfg["device"] = args.device
+    parser = base_parser("Detect players, referees, goalkeepers and the ball.")
+    parser.add_argument("--no-slicing", action="store_true", help="Disable sliced ball inference")
+    args = parser.parse_args(argv)
+    ctx = make_context(args)
     if args.no_slicing:
-        cfg["ball"]["use_slicing"] = False
-    input_path = resolve_path(args.input or cfg["paths"]["input_video"])
-    output_dir = resolve_path(args.output_dir or cfg["paths"]["output_dir"])
-    max_frames = args.max_frames or cfg.get("output", {}).get("max_frames")
-    video_out, csv_out = run_detection(input_path, output_dir, cfg, max_frames)
-    print(f"Annotated video: {video_out}\nDetections CSV:  {csv_out}")
+        ctx.cfg["ball"]["use_slicing"] = False
+    df = run_detection(ctx.input_path, ctx.cfg, ctx.max_frames, ctx.paths.detections_video)
+    df.to_csv(ctx.paths.detections, index=False)
+    print(f"Annotated video: {ctx.paths.detections_video}\nDetections CSV:  {ctx.paths.detections}")
 
 
 if __name__ == "__main__":

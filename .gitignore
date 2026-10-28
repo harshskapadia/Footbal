@@ -9,6 +9,7 @@ venv/
 # Data, weights and outputs (large / licensed; see README for downloads)
 data/raw/*
 data/datasets/*
+data/synthetic/
 models/*
 outputs/*
 !data/raw/.gitkeep

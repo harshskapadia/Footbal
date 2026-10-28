@@ -12,7 +12,7 @@ heatmaps and a 2D minimap.
 | 1. Setup (structure, config, env) | done |
 | 2. Detection (YOLO, sliced ball inference, fine-tuning) | done |
 | 3. Tracking (ByteTrack, ball interpolation) | done |
-| 4. Team assignment (shirt colour K-means) | todo |
+| 4. Team assignment (shirt colour K-means) | done |
 | 5. Pitch mapping (keypoints, homography) | todo |
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | todo |
 | 7. Output (video, CSV, JSON) | todo |
@@ -29,9 +29,13 @@ src/
   utils/               config, device selection, video I/O
   detection/           detector, sliced ball inference, dataset download, training
   tracking/            ByteTrack wrapper, ball outlier removal and interpolation
+  team_assignment/     shirt crops, Lab colour features, K-means, referee/goalkeeper rules
+  pitch/               pitch template (32 keypoints, 105x68 m) and top-down drawing
+  simulation/          synthetic match generator + evaluation against ground truth
   visualization/       frame annotators
   detect.py            stage 2 CLI: detection on a clip
   track.py             stage 3 CLI: tracking on a clip
+  assign_teams.py      stage 4 CLI: team assignment
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -121,9 +125,9 @@ cannot tell referees and goalkeepers apart. Use it for smoke tests only.
 python -m src.detect --input data/raw/0bfacc_0.mp4 --max-frames 150
 ```
 
-Outputs:
-- `outputs/<clip>_detections.mp4`: annotated video
-- `outputs/<clip>_detections.csv`: one row per box
+Outputs (every stage writes into `outputs/<clip>/`):
+- `outputs/<clip>/detections.mp4`: annotated video
+- `outputs/<clip>/detections.csv`: one row per box
   (`frame, class_id, class_name, confidence, x1, y1, x2, y2`)
 
 For a quick check without football data, build a short clip from the sample images
@@ -147,17 +151,17 @@ confident ball is kept.
 ## Stage 3: tracking
 
 ```bash
-# Reuse stage 2 detections (fast, no model needed)
-python -m src.track --input data/raw/0bfacc_0.mp4 --detections outputs/0bfacc_0_detections.csv
-# Or detect and track in one go
-python -m src.track --input data/raw/0bfacc_0.mp4 --max-frames 150
+python -m src.track --input data/raw/0bfacc_0.mp4
 ```
 
+This reuses `outputs/0bfacc_0/detections.csv` if stage 2 has already run, otherwise
+it runs detection first.
+
 Outputs:
-- `outputs/<clip>_tracks.mp4`: people with stable IDs (`#7`, `GK #3`, `REF #12`),
+- `outputs/<clip>/tracks.mp4`: people with stable IDs (`#7`, `GK #3`, `REF #12`),
   ball in yellow when detected and orange when interpolated
-- `outputs/<clip>_tracks.csv`: stage 2 columns plus `tracker_id`
-- `outputs/<clip>_ball.csv`: one row per frame (`frame, x1, y1, x2, y2, confidence, interpolated`)
+- `outputs/<clip>/tracks.csv`: stage 2 columns plus `tracker_id`
+- `outputs/<clip>/ball.csv`: one row per frame (`frame, x1, y1, x2, y2, confidence, interpolated`)
 
 How it works:
 - **People** are tracked with ByteTrack from Roboflow's
@@ -174,3 +178,50 @@ How it works:
      dropped as a false positive (for example a white boot or a pitch marking).
   2. **Interpolation:** gaps of up to `max_gap_frames` (1 s) are filled linearly.
      Longer gaps and the start and end of the clip are left empty rather than guessed.
+
+## Stage 4: team assignment
+
+```bash
+python -m src.assign_teams --input data/raw/0bfacc_0.mp4
+```
+
+Outputs: `teams.csv` (one row per track: `tracker_id, role, team_id, n_crops, L, a, b,
+colour_distance`), `team_colours.json`, and `team_crops.jpg`, a contact sheet of crops
+per group so you can check the clustering by eye.
+
+1. **Crops:** up to 12 boxes per track, spread evenly along it. From each, the
+   shirt band is kept: 15–50% of the box height, with 20% of the width trimmed from
+   each side.
+2. **Colour feature:** the median CIELAB colour of the crop's non-grass pixels
+   (grass is detected by its HSV hue). Distances in Lab roughly match how different
+   two colours look to a person, and the median ignores numbers and logos.
+3. **K-means (k=2)** on the crops of tracks the detector labelled *player*. The fit
+   runs twice: crops far from their cluster centre are dropped before the second fit,
+   so a stray referee or goalkeeper can't pull a team colour towards it. Teams are
+   ordered by lightness (team 0 = darker kit), so labels are the same on every run.
+4. **Per track**, the team is a majority vote over its crops.
+5. **Referees** get no team. **Goalkeepers** wear their own colours, so they are put
+   in the team whose players stand nearest to them on average, compared frame by
+   frame so camera pans don't matter. With the COCO fallback model (no
+   referee or goalkeeper classes), any "player" whose colour fits neither team
+   becomes `other`.
+
+## Testing without real footage: the synthetic match
+
+```bash
+python -m src.simulation                     # 20 s clip + noisy detections + keypoints + ground truth
+python -m src.simulation.evaluate            # score a run against the ground truth
+```
+
+The simulator plays out a 4-4-2 vs 4-4-2 passage of play: formations shift with the
+ball, players dribble and pass, and some passes are intercepted. It renders the
+play from a broadcast camera that pans and zooms, so the homography changes every
+frame. It also writes:
+- detector-like boxes with jitter, 3% missed people, 30% missed balls and occasional
+  false balls;
+- noisy pitch keypoints;
+- the true positions, teams, possession and passes.
+
+The rendered figures are too simple for YOLO, so stages 3 onwards run on these
+simulated detections. That tests everything after detection against known answers.
+It is not evidence of how well the detector does on real footage.

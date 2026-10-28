@@ -56,6 +56,17 @@ ball_interpolation:
   max_gap_frames: 25              # fill gaps up to ~1 s at 25 fps; longer gaps stay empty
   max_speed_px_per_frame: 80      # a detection this far from BOTH neighbours is a false positive
 
+teams:
+  crops_per_track: 12        # shirt crops sampled evenly along each track
+  crop_top: 0.15             # shirt region as fractions of the box height ...
+  crop_bottom: 0.50
+  crop_side: 0.20            # ... and width trimmed from each side
+  min_crop_px: 4             # skip crops smaller than this (far-away players)
+  flag_colour_outliers: true # tracks whose colour fits neither team become "other" (referee/GK
+                             # when the detector has no such classes, e.g. the COCO fallback)
+  outlier_factor: 3.0        # x median player distance to its team colour
+  min_outlier_distance: 25.0 # Lab units
+
 output:
   max_frames: null       # limit frames for quick runs (null = whole clip)
 

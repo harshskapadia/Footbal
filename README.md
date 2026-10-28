@@ -16,7 +16,7 @@ heatmaps and a 2D minimap.
 | 5. Pitch mapping (keypoints, homography) | done |
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | done |
 | 7. Output (video, CSV, JSON) | done |
-| 8. Streamlit dashboard | todo |
+| 8. Streamlit dashboard | done |
 | 9. Tests, typing, CLI | todo |
 | 10. Documentation | todo |
 
@@ -41,6 +41,7 @@ src/
   analyze.py           stage 6 CLI: match statistics and charts
   pipeline.py          chains all stages; degrades gracefully without the pitch model
   run.py               full pipeline CLI: python -m src.run --input clip.mp4
+streamlit_app.py       dashboard: streamlit run streamlit_app.py
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -338,3 +339,21 @@ python -m src.run --input data/raw/synthetic_match.mp4 \
 If the pitch keypoint model is missing, the run still finishes. Possession and passes
 are measured in pixels, the metric outputs are skipped, and the reason is shown in the
 warnings.
+
+## Stage 8: dashboard
+
+```bash
+streamlit run streamlit_app.py
+```
+
+- **Input:** upload a clip, pick one from `data/raw/`, or reopen a finished run from
+  `outputs/`. Synthetic clips automatically use the simulator's detections and
+  keypoints.
+- **Sidebar:** which models were found, the compute device, a frame limit (CPU runs
+  are slow), sliced ball inference on or off, and detection confidence.
+- **Results:** headline numbers (possession, passes, distance, top speed) with kit
+  colour swatches, then tabs for the annotated video (H.264), the minimap with a frame
+  slider, heatmaps, passing networks, tables (teams, players, passes, track roles), and
+  downloads (zip of all stats, `stats.json`, video).
+- A progress bar covers the whole pipeline. Warnings, such as a missing pitch model,
+  are shown in the page.

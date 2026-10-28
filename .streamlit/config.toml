@@ -1,0 +1,8 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+maxUploadSize = 1024   # MB; broadcast clips are large
+
+[theme]
+base = "light"

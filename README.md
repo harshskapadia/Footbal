@@ -1,87 +1,158 @@
-# Football Analytics (Computer Vision)
+# Football Analytics: broadcast video to match stats
 
-Turn a broadcast football clip into an annotated video and match stats: player
-detection and tracking, team assignment, ball possession, speed and distance,
-heatmaps and a 2D minimap.
+Turn a broadcast football clip into an **annotated video** and **match statistics**:
+player and ball detection, tracking with stable IDs, automatic team assignment,
+pixel-to-pitch mapping in metres, ball possession, passes, speed and distance,
+team heatmaps, passing networks and a 2D minimap. Run it from the command line or a
+Streamlit dashboard.
 
-> Work in progress. The project is built in stages, and this README grows as each
-> stage lands.
+![Annotated output frame](docs/images/annotated_frame.jpg)
+<sub>Output frame from the built-in synthetic test match: kit-coloured player IDs with
+live speed, possession bar, ball marker and minimap. Real broadcast clips can be
+downloaded; see [Data and models](#data-and-models).</sub>
 
-| Stage | Status |
-|---|---|
-| 1. Setup (structure, config, env) | done |
-| 2. Detection (YOLO, sliced ball inference, fine-tuning) | done |
-| 3. Tracking (ByteTrack, ball interpolation) | done |
-| 4. Team assignment (shirt colour K-means) | done |
-| 5. Pitch mapping (keypoints, homography) | done |
-| 6. Analytics (possession, speed, heatmaps, passes, minimap) | done |
-| 7. Output (video, CSV, JSON) | done |
-| 8. Streamlit dashboard | done |
-| 9. Tests, typing, CLI | done |
-| 10. Documentation | todo |
+**Stack:** Python 3.11 · Ultralytics YOLO · supervision · ByteTrack (`trackers`) ·
+OpenCV · scikit-learn · pandas · matplotlib · Streamlit
 
-## Repository layout
+---
 
+## Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Data and models](#data-and-models)
+- [Outputs](#outputs)
+- [Validation](#validation)
+- [Limitations](#limitations)
+- [Results for your resume](#results-for-your-resume)
+- [Project structure](#project-structure)
+- [Development](#development)
+
+Detailed notes on every stage are in [docs/PIPELINE.md](docs/PIPELINE.md).
+
+## Features
+
+| Stage | What it does | How |
+|---|---|---|
+| Detection | Players, goalkeepers, referees, ball | YOLO (fine-tunable on Roboflow data); sliced inference finds the 5–15 px ball |
+| Tracking | Stable IDs per person; full ball trajectory | ByteTrack; ball outlier removal plus gap interpolation |
+| Teams | Two teams, referees and goalkeepers separated | Lab shirt colour, two-pass K-means, position rule for goalkeepers |
+| Pitch mapping | Pixels to metres on a 105×68 m pitch | 32-keypoint YOLO pose model, RANSAC homography, offline temporal smoothing |
+| Analytics | Possession %, passes, distance, speed, heatmaps, passing networks | Nearest-player control, control-spell changes, smoothed kinematics |
+| Output | Annotated video, minimap, CSV and JSON stats | OpenCV rendering, H.264 copy for browsers |
+| Dashboard | Upload a clip and explore the results | Streamlit |
+
+Runs on CPU and uses a GPU automatically when one is available. If an optional model
+is missing, the run still finishes with fewer outputs and explains what to download.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    V[Broadcast clip] --> D
+
+    subgraph S2[Stage 2: Detection]
+        D[YOLO detector<br/>players, GK, referee] --> M[Merge, keep best ball]
+        V2[Sliced ball inference<br/>640 px tiles + NMS] --> M
+    end
+    V --> V2
+
+    M -->|detections.csv| T
+
+    subgraph S3[Stage 3: Tracking]
+        T[ByteTrack<br/>people only] --> R[Role majority vote]
+        B[Ball outlier removal<br/>+ gap interpolation]
+    end
+    M --> B
+
+    R -->|tracks.csv| TA
+    V --> TA
+    subgraph S4[Stage 4: Teams]
+        TA[Shirt crops → Lab colour] --> K[Two-pass K-means k=2]
+        K --> GK[Referees: no team<br/>GKs: nearest team]
+    end
+
+    V --> KP
+    subgraph S5[Stage 5: Pitch mapping]
+        KP[Pitch keypoints<br/>YOLO pose, 32 pts] --> H[RANSAC homography]
+        H --> SM[Temporal smoothing<br/>median + mean, centred]
+    end
+    SM --> P[Positions in metres]
+    GK --> P
+    B --> P
+
+    subgraph S6[Stage 6: Analytics]
+        P --> PO[Possession] --> PA[Passes and networks]
+        P --> KI[Speed and distance]
+        P --> HM[Heatmaps]
+    end
+
+    subgraph S7[Stage 7: Output]
+        RV[Annotated video + minimap]
+        ST[stats.json, CSVs, PNGs]
+    end
+    PO --> RV
+    KI --> RV
+    PA --> ST
+    HM --> ST
+    ST --> DB[Stage 8: Streamlit dashboard]
+    RV --> DB
 ```
-config.yaml            paths, model locations and thresholds
-configs/               training configs
-src/
-  utils/               config, device selection, video I/O
-  detection/           detector, sliced ball inference, dataset download, training
-  tracking/            ByteTrack wrapper, ball outlier removal and interpolation
-  team_assignment/     shirt crops, Lab colour features, K-means, referee/goalkeeper rules
-  pitch/               pitch template (32 keypoints, 105x68 m), homography, top-down drawing
-  analytics/           possession, passes, speed/distance, heatmaps, passing networks
-  simulation/          synthetic match generator + evaluation against ground truth
-  visualization/       frame annotators and the 2D minimap
-  detect.py            stage 2 CLI: detection on a clip
-  track.py             stage 3 CLI: tracking on a clip
-  assign_teams.py      stage 4 CLI: team assignment
-  map_pitch.py         stage 5 CLI: pixels -> pitch metres
-  analyze.py           stage 6 CLI: match statistics and charts
-  pipeline.py          chains all stages; degrades gracefully without the pitch model
-  run.py               full pipeline CLI: python -m src.run --input clip.mp4
-streamlit_app.py       dashboard: streamlit run streamlit_app.py
-data/raw/              input clips (not committed)
-data/datasets/         Roboflow training datasets (not committed)
-models/                model weights (not committed)
-outputs/               generated videos and stats (not committed)
-notebooks/             exploration notebooks
-scripts/               asset download and smoke-clip helpers
-tests/                 pytest suite
-```
 
-## Setup
+Each stage is a small module with its own CLI. It reads the previous stage's files
+from `outputs/<clip>/` and writes its own, so any stage can be re-run on its own.
+`src/pipeline.py` chains them.
 
-Requires Python 3.11.
+## Quick start
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pytest -q                          # 62 tests, ~15 s, no downloads or GPU needed
+# 1. Environment (Python 3.11)
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt           # CPU-only machine? See "Setup notes" below
+pytest -q                                 # 62 tests, ~15 s, no downloads needed
+
+# 2. Try it with no downloads: the synthetic match
+python -m src.simulation                  # 20 s clip + simulated detections + ground truth
+python -m src.run --input data/raw/synthetic_match.mp4 \
+    --detections data/synthetic/synthetic_match/detections.csv \
+    --keypoints  data/synthetic/synthetic_match/keypoints.csv
+python -m src.simulation.evaluate         # score the run against ground truth
+
+# 3. Real footage (after the downloads below)
+python -m src.run --input data/raw/0bfacc_0.mp4 --max-frames 250
+
+# 4. Dashboard
+streamlit run streamlit_app.py
 ```
 
-For development: `pip install -r requirements-dev.txt`, then `ruff check .` and
-`mypy src streamlit_app.py`. CI runs all three on every push.
+Every stage can also be run on its own:
 
-On Linux, `pip install torch` from PyPI ships the CUDA build, which also runs on
-CPU. On a CPU-only machine you can save about 2 GB by installing the CPU wheel first:
-`pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`.
+```bash
+python -m src.detect       --input clip.mp4   # stage 2 -> detections.csv, detections.mp4
+python -m src.track        --input clip.mp4   # stage 3 -> tracks.csv, ball.csv, tracks.mp4
+python -m src.assign_teams --input clip.mp4   # stage 4 -> teams.csv, team_crops.jpg
+python -m src.map_pitch    --input clip.mp4   # stage 5 -> positions.csv, pitch_overlay.mp4
+python -m src.analyze      --input clip.mp4   # stage 6 -> stats, heatmaps, passing networks
+```
 
-The device is picked automatically (`device: auto` in `config.yaml`): CUDA,
-then Apple MPS, then CPU.
+All commands accept `--max-frames N`, `--device cpu|cuda:0|mps`, `--config` and
+`--output-dir`. Thresholds are in [`config.yaml`](config.yaml).
 
-## Data and models (manual download)
+**Setup notes.** On Linux, PyPI's `torch` is the CUDA build. It works on CPU but is
+about 2 GB larger. For a CPU-only install, run this first:
+`pip install torch==2.14.1 torchvision==0.29.1 --index-url https://download.pytorch.org/whl/cpu`.
 
-Nothing here requires you to record footage. Everything comes from public sources.
+## Data and models
+
+You don't need to record any footage. Everything is public. Nothing large is
+committed to git.
 
 ### 1. Sample clips and pretrained football models (recommended)
 
-Roboflow's open-source [sports](https://github.com/roboflow/sports) project
-publishes YOLOv8 models trained on football data, plus five 30-second broadcast
-clips from the Kaggle
-[DFL - Bundesliga Data Shootout](https://www.kaggle.com/competitions/dfl-bundesliga-data-shootout).
+Roboflow's open-source [sports](https://github.com/roboflow/sports) project publishes
+YOLOv8 models trained on football data, plus five 30-second broadcast clips from the
+Kaggle [DFL - Bundesliga Data Shootout](https://www.kaggle.com/competitions/dfl-bundesliga-data-shootout).
 They are hosted on Google Drive:
 
 ```bash
@@ -89,22 +160,19 @@ pip install gdown
 bash scripts/download_assets.sh
 ```
 
-This creates:
-
-| File | Purpose |
+| File | Used for |
 |---|---|
-| `models/football-player-detection.pt` | ball / goalkeeper / player / referee detector |
-| `models/football-ball-detection.pt` | dedicated ball detector |
+| `models/football-player-detection.pt` | ball / goalkeeper / player / referee detection |
+| `models/football-ball-detection.pt` | dedicated ball detector (sliced inference) |
 | `models/football-pitch-detection.pt` | 32 pitch keypoints (stage 5) |
 | `data/raw/{0bfacc_0,2e57b9_0,08fd33_0,573e61_0,121364_0}.mp4` | sample clips |
 
-If the Google Drive downloads fail, you can use any clip from the Kaggle competition
-instead: accept its rules, download `clips/*.mp4` and put a clip in `data/raw/`.
+If Google Drive refuses the download, accept the Kaggle competition's rules, download
+any file from its `clips/` folder and put it in `data/raw/`.
 
-### 2. Training datasets (only if you want to fine-tune)
+### 2. Training datasets (only for fine-tuning)
 
-Roboflow Universe datasets (free account and API key needed:
-https://app.roboflow.com/settings/api):
+From Roboflow Universe (free account; API key at https://app.roboflow.com/settings/api):
 
 | Dataset | Version | Task |
 |---|---|---|
@@ -115,248 +183,172 @@ https://app.roboflow.com/settings/api):
 ```bash
 pip install -r requirements-train.txt
 export ROBOFLOW_API_KEY=your_key
-python -m src.detection.download_dataset --dataset players     # -> data/datasets/football-players-detection-10/
+python -m src.detection.download_dataset --dataset players      # or: ball, pitch
 python -m src.detection.train --config configs/train_detector.yaml
+python -m src.detection.train --config configs/train_pitch.yaml # keypoint model
 ```
 
-The trained weights are copied to `models/football-player-detection.pt`. For the
-pitch keypoint model, download `--dataset pitch` and train with
-`configs/train_pitch.yaml`. Mosaic augmentation and horizontal flips are turned off
-there because they would scramble the keypoint labels.
+Trained weights are copied into `models/`, where the pipeline picks them up.
 
 ### 3. Without any downloads
 
-If no football model is present, the pipeline falls back to the COCO
-`yolo11n.pt` model, which Ultralytics downloads automatically from GitHub. It
-detects `person` (mapped to *player*) and `sports ball` (mapped to *ball*), but it
-cannot tell referees and goalkeepers apart. Use it for smoke tests only.
+With no football models, detection falls back to the COCO `yolo11n.pt` model, which
+Ultralytics downloads automatically from GitHub. It finds people and balls but can't
+tell referees and goalkeepers apart; colour outliers are then labelled `other`.
+Without the pitch model, possession and passes are measured in pixels, and speed,
+distance, heatmaps and the minimap are skipped with a warning.
 
-## Stage 2: detection
+## Outputs
 
-```bash
-python -m src.detect --input data/raw/0bfacc_0.mp4 --max-frames 150
-```
+Everything is written to `outputs/<clip>/`:
 
-Outputs (every stage writes into `outputs/<clip>/`):
-- `outputs/<clip>/detections.mp4`: annotated video
-- `outputs/<clip>/detections.csv`: one row per box
-  (`frame, class_id, class_name, confidence, x1, y1, x2, y2`)
-
-For a quick check without football data, build a short clip from the sample images
-that ship with Ultralytics. These are not football frames; the clip only proves the
-pipeline runs:
-
-```bash
-python scripts/make_smoke_clip.py --out data/raw/smoke.mp4
-python -m src.detect --input data/raw/smoke.mp4
-```
-
-Measured on a 4-core CPU with the `yolo11n` fallback and slicing on: about 1.7 fps
-at 1280×720. Expect much slower speeds with the YOLOv8x football models on CPU, so use
-`--max-frames` while testing, or a GPU.
-
-The ball is often only 5–15 px wide in broadcast footage. With `ball.use_slicing`
-on, each frame is cut into overlapping 640×640 tiles (`supervision.InferenceSlicer`).
-The ball model runs on every tile, the results are merged with NMS, and the most
-confident ball is kept.
-
-## Stage 3: tracking
-
-```bash
-python -m src.track --input data/raw/0bfacc_0.mp4
-```
-
-This reuses `outputs/0bfacc_0/detections.csv` if stage 2 has already run, otherwise
-it runs detection first.
-
-Outputs:
-- `outputs/<clip>/tracks.mp4`: people with stable IDs (`#7`, `GK #3`, `REF #12`),
-  ball in yellow when detected and orange when interpolated
-- `outputs/<clip>/tracks.csv`: stage 2 columns plus `tracker_id`
-- `outputs/<clip>/ball.csv`: one row per frame (`frame, x1, y1, x2, y2, confidence, interpolated`)
-
-How it works:
-- **People** are tracked with ByteTrack from Roboflow's
-  [`trackers`](https://github.com/roboflow/trackers) package. ByteTrack moved out of
-  `supervision` in later releases, and `trackers` works directly on `sv.Detections`.
-  A lost ID is kept alive for `tracking.lost_track_buffer_s` (2 s), so short
-  occlusions don't create new IDs. Each track's role (player, goalkeeper or referee)
-  is decided by a majority vote over all its frames, which removes per-frame
-  class flicker.
-- **The ball** is not tracked by ByteTrack because it is too small, too fast and
-  too often missing. Instead it is cleaned in two steps:
-  1. **Outlier removal:** a detection that implies a speed above
-     `max_speed_px_per_frame` relative to *both* neighbouring detections is
-     dropped as a false positive (for example a white boot or a pitch marking).
-  2. **Interpolation:** gaps of up to `max_gap_frames` (1 s) are filled linearly.
-     Longer gaps and the start and end of the clip are left empty rather than guessed.
-
-## Stage 4: team assignment
-
-```bash
-python -m src.assign_teams --input data/raw/0bfacc_0.mp4
-```
-
-Outputs: `teams.csv` (one row per track: `tracker_id, role, team_id, n_crops, L, a, b,
-colour_distance`), `team_colours.json`, and `team_crops.jpg`, a contact sheet of crops
-per group so you can check the clustering by eye.
-
-1. **Crops:** up to 12 boxes per track, spread evenly along it. From each, the
-   shirt band is kept: 15–50% of the box height, with 20% of the width trimmed from
-   each side.
-2. **Colour feature:** the median CIELAB colour of the crop's non-grass pixels
-   (grass is detected by its HSV hue). Distances in Lab roughly match how different
-   two colours look to a person, and the median ignores numbers and logos.
-3. **K-means (k=2)** on the crops of tracks the detector labelled *player*. The fit
-   runs twice: crops far from their cluster centre are dropped before the second fit,
-   so a stray referee or goalkeeper can't pull a team colour towards it. Teams are
-   ordered by lightness (team 0 = darker kit), so labels are the same on every run.
-4. **Per track**, the team is a majority vote over its crops.
-5. **Referees** get no team. **Goalkeepers** wear their own colours, so they are put
-   in the team whose players stand nearest to them on average, compared frame by
-   frame so camera pans don't matter. With the COCO fallback model (no
-   referee or goalkeeper classes), any "player" whose colour fits neither team
-   becomes `other`.
-
-## Testing without real footage: the synthetic match
-
-```bash
-python -m src.simulation                     # 20 s clip + noisy detections + keypoints + ground truth
-python -m src.simulation.evaluate            # score a run against the ground truth
-```
-
-The simulator plays out a 4-4-2 vs 4-4-2 passage of play: formations shift with the
-ball, players dribble and pass, and some passes are intercepted. It renders the
-play from a broadcast camera that pans and zooms, so the homography changes every
-frame. It also writes:
-- detector-like boxes with jitter, 3% missed people, 30% missed balls and occasional
-  false balls;
-- noisy pitch keypoints;
-- the true positions, teams, possession and passes.
-
-The rendered figures are too simple for YOLO, so stages 3 onwards run on these
-simulated detections. That tests everything after detection against known answers.
-It is not evidence of how well the detector does on real footage.
-
-## Stage 5: pitch mapping
-
-```bash
-python -m src.map_pitch --input data/raw/0bfacc_0.mp4                  # uses models/football-pitch-detection.pt
-python -m src.map_pitch --input clip.mp4 --keypoints my_keypoints.csv  # or pre-computed keypoints
-```
-
-Outputs: `positions.csv` (`frame, tracker_id, team_id, role, x_px, y_px, x_m, y_m`),
-`ball_positions.csv`, `homographies.csv` (per-frame fit quality and the smoothed
-matrix), `keypoints.csv`, and `pitch_overlay.mp4`, which draws the pitch lines back
-onto each frame so you can check the mapping by eye.
-
-1. **Keypoints:** a YOLO pose model finds up to 32 pitch landmarks (corners, box
-   corners, penalty spots, centre-circle points), in the same order as Roboflow's
-   `football-field-detection` dataset. Keypoints below `keypoint_conf` are ignored.
-2. **Homography per frame:** `cv2.findHomography` with RANSAC (1 m threshold) maps
-   pixels to a 105×68 m template. A frame is rejected if it has fewer than 4 inliers
-   or a mean reprojection error above 1.5 m.
-3. **Smoothing over time.** Each homography is represented by where a fixed grid of
-   12 image points lands on the pitch. Those trajectories are interpolated across
-   gaps of up to 1 s, passed through a centred rolling median to remove one-frame
-   glitches, then a centred rolling mean to remove jitter. A homography is then refit
-   for every frame. The whole clip is processed offline, so the centred windows add
-   no lag while the camera pans.
-4. **Projection:** each player is projected from the bottom-centre of their box (the
-   feet) and the ball from the bottom of its box. Points more than 5 m outside the
-   pitch are discarded.
-
-On the synthetic match (panning and zooming camera, 1.5 px keypoint noise, 10%
-missing keypoints):
-
-| | People, mean / p95 error | Ball, mean / p95 error |
-|---|---|---|
-| Per-frame homography only | 0.71 m / 0.60 m | 0.88 m / 0.86 m |
-| With temporal smoothing | **0.14 m / 0.32 m** | **0.09 m / 0.19 m** |
-
-(The ball row without smoothing also projected from the box centre, an error fixed
-at the same time.)
-
-If no pitch model or keypoints are available, the command stops and explains what to
-download.
-
-## Stage 6: analytics
-
-```bash
-python -m src.analyze --input data/raw/0bfacc_0.mp4
-```
-
-| Output | What it is |
+| File | Contents |
 |---|---|
-| `possession.csv` | per frame: `owner_id`, `owner_team`, distance to the ball, `team_in_possession` |
-| `passes.csv` | `frame_start, frame_end, from_id, to_id, team, to_team, completed, distance_m` |
-| `player_stats.csv` | per track: distance (m), average and top speed (km/h), minutes tracked |
-| `speeds.csv` | per frame and track speed, used for the video overlay |
-| `heatmap_team{0,1}.png` | where each team spent its time (shared colour scale) |
-| `passing_network_team{0,1}.png` | players at their average position, lines weighted by passes between them |
-| `stats.json` | headline summary |
+| `annotated.mp4`, `annotated_h264.mp4` | final video; the H.264 copy plays in browsers |
+| `stats.json` | possession %, passes, distance and top speed per team, top players, warnings |
+| `team_summary.csv`, `player_stats.csv` | per team and per player stats |
+| `passes.csv`, `possession.csv`, `speeds.csv` | event and per-frame data |
+| `heatmap_team{0,1}.png`, `passing_network_team{0,1}.png` | charts |
+| `detections.csv`, `tracks.csv`, `ball.csv`, `teams.csv`, `keypoints.csv`, `homographies.csv`, `positions.csv` | intermediate data from each stage |
 
-- **Possession:** the nearest player (or goalkeeper) within 2 m of the ball controls
-  it. Spells shorter than 0.4 s are ignored: a pass at 16 m/s stays within 2 m of
-  a player it flies past for about 0.25 s. While the ball travels, the last team in
-  control keeps possession.
-- **Passes:** a change of owner between consecutive control spells. To a teammate it
-  is completed; to an opponent it is a turnover. Changes after more than 4 s of loose
-  ball, and "passes" shorter than 3 m (usually one player split into two IDs), are
-  ignored.
-- **Speed and distance:** positions are smoothed with a centred 0.4 s window, then
-  measured frame to frame. Steps across gaps in a track, and readings above 40 km/h,
-  are discarded. Top speed is each player's 95th-percentile reading, so a single
-  noisy frame can't set it. Smoothing matters: on the synthetic match, raw positions
-  overestimate distance by 55%; the 0.4 s window brings that to +1.6%.
-- **Minimap:** a top-down pitch with players in their kit colours, the player on the
-  ball ringed in gold, and the ball. It is drawn onto the video in stage 7.
-- **Without a pitch mapping**, possession and passes are measured in pixels, and the
-  metric outputs (speed, distance, heatmaps, networks) are skipped with a warning.
+| Pitch-line overlay (homography check) | Team heatmap | Passing network |
+|---|---|---|
+| ![](docs/images/pitch_overlay.jpg) | ![](docs/images/heatmap_team0.png) | ![](docs/images/passing_network_team0.png) |
 
-Charts use one sequential blue ramp for magnitude, and fixed, colour-blind-checked
-team colours (team 0 blue `#2a78d6`, team 1 orange `#eb6834`). Kit colours aren't
-used in charts because a white or green kit would disappear against the background.
+| Team clustering contact sheet | Dashboard |
+|---|---|
+| ![](docs/images/team_crops.jpg) | ![](docs/images/dashboard.png) |
 
-## Stage 7: full pipeline and outputs
+<sub>All images come from the synthetic test match.</sub>
 
-```bash
-python -m src.run --input data/raw/0bfacc_0.mp4              # everything, written to outputs/0bfacc_0/
-python -m src.run --input clip.mp4 --max-frames 250 --device cpu
-python -m src.run --input data/raw/synthetic_match.mp4 \
-    --detections data/synthetic/synthetic_match/detections.csv \
-    --keypoints  data/synthetic/synthetic_match/keypoints.csv
+## Validation
+
+Real broadcast footage has no ground truth for player positions, so the project
+includes a **synthetic match simulator** (`src/simulation/`). It plays out a
+4-4-2 vs 4-4-2 passage with passes and interceptions. It renders the play through a
+broadcast-style camera that **pans and zooms**, then generates detector-like boxes
+(jitter, 3% missed people, 30% missed balls, false balls) and noisy pitch keypoints
+(1.5 px noise, 10% missing). Stages 3–7 run on those inputs exactly as they would on
+model output, and `python -m src.simulation.evaluate` compares the results with the
+truth.
+
+Results on the default 20-second synthetic match (500 frames, seed 2):
+
+| Component | Metric | Result |
+|---|---|---|
+| Team assignment | track-level accuracy | **100%** (30 tracks); referees correctly given no team |
+| Pitch mapping | player position error, mean / p95 | **0.14 m / 0.32 m** (0.71 m / 0.60 m without temporal smoothing) |
+| Pitch mapping | ball position error, mean | **0.09 m** |
+| Possession | team share, estimated vs true | **82.6% vs 83.2%**; 99.4% of frames agree |
+| Passes | precision / recall | **8/8 and 8/8** (7 completed, 1 interception) |
+| Distance covered | error per player | **+1.6%** mean, 2.4% absolute (**+55%** without smoothing) |
+| Tracking | track IDs per true person | 1.78 (mostly players leaving and re-entering the frame) |
+
+**What this does and doesn't show:** it checks the logic after detection (tracking,
+clustering, geometry, analytics) against known answers, under realistic camera
+motion and noise. It doesn't measure detector accuracy on real footage. The rendered
+figures are simple, and real kits, lighting and occlusion are harder.
+
+**Speed on CPU** (4 cores, 1280×720, COCO `yolo11n` fallback): the detector runs at
+8.2 fps and sliced ball inference at 3.2 fps. Everything after detection (tracking to
+rendered video) processes the 500-frame synthetic clip in about 12 s. The larger
+YOLOv8x football models are much slower on CPU, so use a GPU or `--max-frames` for
+long clips.
+
+## Limitations
+
+- **Ball detection.** The ball is often 5–15 px wide, motion-blurred, or hidden by
+  players. Sliced inference helps recall at about 4× the cost. Gaps over 1 s aren't
+  filled. A ball **in the air** is projected to the wrong pitch position, because the
+  homography only knows the ground plane. Possession and passes then rely on the
+  "last team in control" rule.
+- **ID switches and re-entry.** ByteTrack matches on motion and box overlap only.
+  A player who leaves the frame for more than 2 s comes back with a new ID, and
+  crossing players can swap IDs. Per-player totals are therefore split across IDs.
+  Measured on the synthetic match: 1.78 IDs per person. Re-identifying players by
+  appearance or shirt number would fix this.
+- **Camera zoom, replays and cuts.** The homography needs at least 4 confident pitch
+  keypoints. Close-ups, replays and crowd shots don't have them. Smoothing bridges up
+  to 1 s; longer gaps leave positions empty, and metric stats skip those frames. Scene
+  cuts aren't detected explicitly. Errors grow towards the far touchline, where one
+  pixel covers more metres.
+- **Team colours.** Two-cluster K-means assumes clearly different kits. Similar
+  colours, heavy shadows, or a kit close to the grass colour can confuse it.
+  Goalkeepers are assigned by position, not colour.
+- **Possession and passes are heuristics.** They use the nearest player within 2 m
+  and control lasting at least 0.4 s, so one-touch passes and deflections can be
+  missed or merged.
+- **Speeds** come from smoothed homography positions. Top speed is a 95th-percentile
+  reading, deliberately conservative, and won't match GPS tracking data.
+- **Evaluation** covers stages 3–7 on synthetic data only (see [Validation](#validation)).
+
+## Results for your resume
+
+Every number below was measured in this repository. Numbers in **[brackets]** are
+blanks for you to fill in after running on real clips, ideally on a GPU, so you can
+stand behind them.
+
+- Built an end-to-end computer-vision pipeline that turns broadcast football video
+  into an annotated video and match statistics (possession, passes, distance, speed,
+  heatmaps, passing networks, 2D minimap). Uses YOLO, ByteTrack, K-means, a
+  homography to pitch coordinates, and a Streamlit dashboard.
+- Mapped players from pixels to a 105×68 m pitch using a 32-keypoint pose model and
+  RANSAC homography. Designed an offline temporal smoothing step that cut position
+  error from 0.71 m to **0.14 m** (mean) under a panning, zooming camera.
+- Built a synthetic match simulator with ground truth to validate the analytics:
+  **100%** team-assignment accuracy, possession within **0.6 points** of the truth, and
+  **8/8** passes detected with no false positives. Distance error went from **+55% to
+  +1.6%** after tuning kinematic smoothing.
+- Improved small-ball recall with sliced (tiled) inference and trajectory
+  interpolation; ball coverage on real clips **[X% of frames detected, Y% after
+  interpolation]**.
+- Processed **[N]** Bundesliga broadcast clips at **[X] fps** on **[GPU]**; fine-tuned
+  YOLO on the Roboflow football dataset to **[mAP50 = X]** (from
+  `runs/detect/football-players/results.csv`).
+- Engineered for maintainability: 62 pytest tests (including end-to-end runs scored
+  against ground truth), type-checked with mypy, linted with ruff, CI on GitHub
+  Actions, and modular stage CLIs.
+
+## Project structure
+
+```
+config.yaml              paths, model locations and every threshold
+configs/                 YOLO training configs (detector, pitch keypoints)
+src/
+  run.py                 full pipeline CLI: python -m src.run --input clip.mp4
+  pipeline.py            chains stages; degrades gracefully without optional models
+  detect.py, track.py, assign_teams.py, map_pitch.py, analyze.py   per-stage CLIs
+  detection/             YOLO wrapper, class mapping, sliced ball inference, training, dataset download
+  tracking/              ByteTrack wrapper, ball outlier removal and interpolation
+  team_assignment/       shirt crops, Lab colour features, K-means, referee/goalkeeper rules
+  pitch/                 105x68 m template (32 keypoints), homography + smoothing, drawing
+  analytics/             possession, passes, kinematics, heatmaps, passing networks
+  visualization/         frame annotators, minimap
+  simulation/            synthetic match generator and evaluation
+  utils/                 config, device selection, video I/O, run paths, progress
+streamlit_app.py         dashboard
+scripts/                 asset download, smoke-test clip
+tests/                   62 tests: units, homography, teams, analytics, CLI, app, end-to-end
+docs/                    pipeline details and example images
+notebooks/               for your own exploration of outputs/ (empty)
+data/, models/, outputs/ local only (git-ignored)
 ```
 
-- `annotated.mp4`: players in their team's kit colour with ID and live speed, a gold
-  marker on the player in possession, the ball (orange when interpolated), a running
-  possession bar, and the 2D minimap.
-- `annotated_h264.mp4`: the same video re-encoded to H.264 with the ffmpeg bundled in
-  `imageio-ffmpeg`, so browsers and the dashboard can play it. OpenCV's pip build
-  can only write `mp4v`.
-- `stats.json`: possession %, passes per team, distance and top speed per team, top
-  5 players by distance, team kit colours, and any warnings.
-- `team_summary.csv`, `player_stats.csv`, `passes.csv`, `possession.csv`, plus every
-  intermediate CSV from stages 2–5.
-
-If the pitch keypoint model is missing, the run still finishes. Possession and passes
-are measured in pixels, the metric outputs are skipped, and the reason is shown in the
-warnings.
-
-## Stage 8: dashboard
+## Development
 
 ```bash
-streamlit run streamlit_app.py
+pip install -r requirements-dev.txt
+ruff check .                    # lint
+mypy src streamlit_app.py       # types
+pytest -q                       # tests
 ```
 
-- **Input:** upload a clip, pick one from `data/raw/`, or reopen a finished run from
-  `outputs/`. Synthetic clips automatically use the simulator's detections and
-  keypoints.
-- **Sidebar:** which models were found, the compute device, a frame limit (CPU runs
-  are slow), sliced ball inference on or off, and detection confidence.
-- **Results:** headline numbers (possession, passes, distance, top speed) with kit
-  colour swatches, then tabs for the annotated video (H.264), the minimap with a frame
-  slider, heatmaps, passing networks, tables (teams, players, passes, track roles), and
-  downloads (zip of all stats, `stats.json`, video).
-- A progress bar covers the whole pipeline. Warnings, such as a missing pitch model,
-  are shown in the page.
+GitHub Actions runs all three on every push (`.github/workflows/ci.yml`), with
+CPU-only PyTorch.
+
+### Acknowledgements
+
+Sample clips: DFL - Bundesliga Data Shootout (Kaggle). Pretrained models, datasets
+and the 32-keypoint pitch layout: Roboflow's [sports](https://github.com/roboflow/sports)
+project and Roboflow Universe. Check each source's licence before redistributing
+clips or weights.

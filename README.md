@@ -14,7 +14,7 @@ heatmaps and a 2D minimap.
 | 3. Tracking (ByteTrack, ball interpolation) | done |
 | 4. Team assignment (shirt colour K-means) | done |
 | 5. Pitch mapping (keypoints, homography) | done |
-| 6. Analytics (possession, speed, heatmaps, passes, minimap) | todo |
+| 6. Analytics (possession, speed, heatmaps, passes, minimap) | done |
 | 7. Output (video, CSV, JSON) | todo |
 | 8. Streamlit dashboard | todo |
 | 9. Tests, typing, CLI | todo |
@@ -30,13 +30,15 @@ src/
   detection/           detector, sliced ball inference, dataset download, training
   tracking/            ByteTrack wrapper, ball outlier removal and interpolation
   team_assignment/     shirt crops, Lab colour features, K-means, referee/goalkeeper rules
-  pitch/               pitch template (32 keypoints, 105x68 m) and top-down drawing
+  pitch/               pitch template (32 keypoints, 105x68 m), homography, top-down drawing
+  analytics/           possession, passes, speed/distance, heatmaps, passing networks
   simulation/          synthetic match generator + evaluation against ground truth
-  visualization/       frame annotators
+  visualization/       frame annotators and the 2D minimap
   detect.py            stage 2 CLI: detection on a clip
   track.py             stage 3 CLI: tracking on a clip
   assign_teams.py      stage 4 CLI: team assignment
   map_pitch.py         stage 5 CLI: pixels -> pitch metres
+  analyze.py           stage 6 CLI: match statistics and charts
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -271,3 +273,41 @@ at the same time.)
 
 If no pitch model or keypoints are available, the command stops and explains what to
 download.
+
+## Stage 6: analytics
+
+```bash
+python -m src.analyze --input data/raw/0bfacc_0.mp4
+```
+
+| Output | What it is |
+|---|---|
+| `possession.csv` | per frame: `owner_id`, `owner_team`, distance to the ball, `team_in_possession` |
+| `passes.csv` | `frame_start, frame_end, from_id, to_id, team, to_team, completed, distance_m` |
+| `player_stats.csv` | per track: distance (m), average and top speed (km/h), minutes tracked |
+| `speeds.csv` | per frame and track speed, used for the video overlay |
+| `heatmap_team{0,1}.png` | where each team spent its time (shared colour scale) |
+| `passing_network_team{0,1}.png` | players at their average position, lines weighted by passes between them |
+| `stats.json` | headline summary |
+
+- **Possession:** the nearest player (or goalkeeper) within 2 m of the ball controls
+  it. Spells shorter than 0.4 s are ignored: a pass at 16 m/s stays within 2 m of
+  a player it flies past for about 0.25 s. While the ball travels, the last team in
+  control keeps possession.
+- **Passes:** a change of owner between consecutive control spells. To a teammate it
+  is completed; to an opponent it is a turnover. Changes after more than 4 s of loose
+  ball, and "passes" shorter than 3 m (usually one player split into two IDs), are
+  ignored.
+- **Speed and distance:** positions are smoothed with a centred 0.4 s window, then
+  measured frame to frame. Steps across gaps in a track, and readings above 40 km/h,
+  are discarded. Top speed is each player's 95th-percentile reading, so a single
+  noisy frame can't set it. Smoothing matters: on the synthetic match, raw positions
+  overestimate distance by 55%; the 0.4 s window brings that to +1.6%.
+- **Minimap:** a top-down pitch with players in their kit colours, the player on the
+  ball ringed in gold, and the ball. It is drawn onto the video in stage 7.
+- **Without a pitch mapping**, possession and passes are measured in pixels, and the
+  metric outputs (speed, distance, heatmaps, networks) are skipped with a warning.
+
+Charts use one sequential blue ramp for magnitude, and fixed, colour-blind-checked
+team colours (team 0 blue `#2a78d6`, team 1 orange `#eb6834`). Kit colours aren't
+used in charts because a white or green kit would disappear against the background.

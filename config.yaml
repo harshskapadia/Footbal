@@ -67,6 +67,19 @@ teams:
   outlier_factor: 3.0        # x median player distance to its team colour
   min_outlier_distance: 25.0 # Lab units
 
+analytics:
+  possession_radius_m: 2.0      # nearest player within this distance of the ball controls it
+  possession_radius_px: 60      # same, in pixels, when no pitch mapping is available
+  min_control_s: 0.4            # ignore "control" shorter than this: a pass at 16 m/s stays within
+                                # 2 m of a player it flies past for ~0.25 s
+  max_pass_gap_s: 4.0           # longer loose-ball spells are not counted as passes
+  min_pass_distance_m: 3.0      # shorter "passes" are usually one player split into two IDs
+  speed_window_s: 0.4           # centred smoothing of positions before measuring speed; without it
+                                # jitter inflates distance (+55% on the synthetic match)
+  max_speed_kmh: 40.0           # faster readings are glitches (ID switch, bad homography)
+  heatmap_bin_m: 1.0
+  heatmap_sigma_m: 2.5
+
 output:
   max_frames: null       # limit frames for quick runs (null = whole clip)
 

@@ -73,6 +73,10 @@ class RunPaths:
         return self.root / "possession.csv"
 
     @property
+    def speeds(self) -> Path:
+        return self.root / "speeds.csv"
+
+    @property
     def player_stats(self) -> Path:
         return self.root / "player_stats.csv"
 

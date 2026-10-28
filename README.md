@@ -22,6 +22,7 @@ OpenCV · scikit-learn · pandas · matplotlib · Streamlit
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
 - [Data and models](#data-and-models)
+- [Real match highlights](#real-match-highlights)
 - [Outputs](#outputs)
 - [Validation](#validation)
 - [Limitations](#limitations)
@@ -110,7 +111,7 @@ from `outputs/<clip>/` and writes its own, so any stage can be re-run on its own
 # 1. Environment (Python 3.11)
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt           # CPU-only machine? See "Setup notes" below
-pytest -q                                 # 62 tests, ~15 s, no downloads needed
+pytest -q                                 # 69 tests, ~30 s, no downloads needed
 
 # 2. Try it with no downloads: the synthetic match
 python -m src.simulation                  # 20 s clip + simulated detections + ground truth
@@ -121,6 +122,7 @@ python -m src.simulation.evaluate         # score the run against ground truth
 
 # 3. Real footage (after the downloads below)
 python -m src.run --input data/raw/0bfacc_0.mp4 --max-frames 250
+python -m src.run --input data/raw/my_highlights.mp4      # edited footage: cuts handled automatically
 
 # 4. Dashboard
 streamlit run streamlit_app.py
@@ -198,6 +200,56 @@ tell referees and goalkeepers apart; colour outliers are then labelled `other`.
 Without the pitch model, possession and passes are measured in pixels, and speed,
 distance, heatmaps and the minimap are skipped with a warning.
 
+## Real match highlights
+
+Highlights and full broadcasts cut between the wide tactical camera, close-ups,
+replays and crowd shots. The pipeline handles this automatically:
+
+1. **Shot segmentation** (`src/shots/`): a cut is a sudden jump in the frame's colour
+   histogram that stands out from the local level of change, so fast pans don't count.
+   Each shot is labelled *wide* if it is mostly grass (≥ 35% of pixels), at least 1 s
+   long, and its players are small (median box height ≤ 22% of the frame).
+2. **Only wide shots are analysed.** Detection and keypoints are skipped elsewhere,
+   which also saves time. The tracker, ball interpolation, homography smoothing and
+   possession all **restart at each cut**, and a pass is never counted across one.
+3. Other frames carry a *"Not analysed"* banner in the video. `shots.csv` lists every
+   shot, and `stats.json` reports how much of the clip was analysed.
+
+```bash
+python -m src.run --input data/raw/my_highlights.mp4
+```
+
+### Where to get real footage legally
+
+| Source | What you get | Access |
+|---|---|---|
+| [SoccerNet](https://www.soccer-net.org/) full broadcasts | 500 full matches (European leagues), 720p, with cuts, replays and close-ups, plus event labels | Free, but you must sign an NDA on [Hugging Face](https://huggingface.co/datasets/SoccerNet/SoccerNet_raw_HQ) and wait for manual approval |
+| [SoccerNet tracking](https://huggingface.co/datasets/SoccerNet/SN-Tracking-2023) | 30 s wide-camera clips with ground-truth player tracks | Public |
+| Kaggle [DFL clips](https://www.kaggle.com/competitions/dfl-bundesliga-data-shootout) | Bundesliga wide-camera clips | Accept the competition rules |
+| Your own files | Any match video you have the right to use | Drop it into `data/raw/` |
+
+Don't download from YouTube or broadcaster sites unless their terms allow it, and
+don't publish clips you don't have the rights to.
+
+**SoccerNet, step by step** (after your access request is approved):
+
+```bash
+pip install SoccerNet huggingface_hub
+huggingface-cli login                  # the account that was approved
+python - <<'PY'
+from SoccerNet.Downloader import SoccerNetDownloader
+d = SoccerNetDownloader(LocalDirectory="data/soccernet")
+d.downloadGames(files=["Labels-v2.json", "1_720p.mkv", "2_720p.mkv"], split=["test"])   # ~1 GB per game
+PY
+# Cut 25-second "highlights" around every goal of one game, then analyse them:
+python scripts/cut_highlights.py --soccernet "data/soccernet/<league>/<season>/<game>" --events Goal
+python -m src.run --input data/raw/<clip>.mp4
+```
+
+`scripts/cut_highlights.py --video match.mp4 --at 12:30 55:10` cuts clips from any
+long video at the times you choose. Start with 20–30 second clips: a full half is
+67,500 frames.
+
 ## Outputs
 
 Everything is written to `outputs/<clip>/`:
@@ -267,11 +319,17 @@ long clips.
   crossing players can swap IDs. Per-player totals are therefore split across IDs.
   Measured on the synthetic match: 1.78 IDs per person. Re-identifying players by
   appearance or shirt number would fix this.
-- **Camera zoom, replays and cuts.** The homography needs at least 4 confident pitch
-  keypoints. Close-ups, replays and crowd shots don't have them. Smoothing bridges up
-  to 1 s; longer gaps leave positions empty, and metric stats skip those frames. Scene
-  cuts aren't detected explicitly. Errors grow towards the far touchline, where one
-  pixel covers more metres.
+- **Camera zoom, replays and cuts.** Cuts are detected and only wide shots are
+  analysed (see [Real match highlights](#real-match-highlights)), but:
+  - **Replays shown from a wide angle** are analysed again, so the same action can
+    count twice.
+  - **Gradual transitions** (slow fades, animated wipes) can be missed or split into
+    several cuts.
+  - **Player IDs don't carry across cuts**, so the same player gets a new ID in every
+    shot, and per-player totals for a highlights reel are per appearance.
+  - The homography needs at least 4 confident pitch keypoints; smoothing bridges up to
+    1 s without them.
+  - Errors grow towards the far touchline, where one pixel covers more metres.
 - **Team colours.** Two-cluster K-means assumes clearly different kits. Similar
   colours, heavy shadows, or a kit close to the grass colour can confuse it.
   Goalkeepers are assigned by position, not colour.
@@ -305,7 +363,10 @@ stand behind them.
 - Processed **[N]** Bundesliga broadcast clips at **[X] fps** on **[GPU]**; fine-tuned
   YOLO on the Roboflow football dataset to **[mAP50 = X]** (from
   `runs/detect/football-players/results.csv`).
-- Engineered for maintainability: 62 pytest tests (including end-to-end runs scored
+- Added shot segmentation so edited highlights work: detects cuts, analyses only
+  wide-camera shots, and restarts tracking and pitch mapping at each cut
+  (**[X% of a highlights reel analysed]**).
+- Engineered for maintainability: 69 pytest tests (including end-to-end runs scored
   against ground truth), type-checked with mypy, linted with ruff, CI on GitHub
   Actions, and modular stage CLIs.
 
@@ -324,11 +385,12 @@ src/
   pitch/                 105x68 m template (32 keypoints), homography + smoothing, drawing
   analytics/             possession, passes, kinematics, heatmaps, passing networks
   visualization/         frame annotators, minimap
+  shots/                 cut detection and wide-shot selection for highlights
   simulation/            synthetic match generator and evaluation
   utils/                 config, device selection, video I/O, run paths, progress
 streamlit_app.py         dashboard
-scripts/                 asset download, smoke-test clip
-tests/                   62 tests: units, homography, teams, analytics, CLI, app, end-to-end
+scripts/                 asset download, smoke-test clip, highlight cutting
+tests/                   69 tests: units, homography, teams, analytics, CLI, app, end-to-end
 docs/                    pipeline details and example images
 notebooks/               for your own exploration of outputs/ (empty)
 data/, models/, outputs/ local only (git-ignored)

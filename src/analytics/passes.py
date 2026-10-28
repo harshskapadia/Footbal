@@ -15,12 +15,13 @@ def control_spells(possession: pd.DataFrame) -> pd.DataFrame:
     """Collapse per-frame ownership into spells: ``owner_id, team, first_frame, last_frame``."""
     owned = possession[possession["owner_id"] != NO_OWNER]
     if owned.empty:
-        return pd.DataFrame(columns=["owner_id", "team", "first_frame", "last_frame"])
+        return pd.DataFrame(columns=["owner_id", "team", "first_frame", "last_frame", "shot_id"])
+    shot = owned["shot_id"] if "shot_id" in owned else pd.Series(0, index=owned.index)
     new_spell = (owned["owner_id"] != owned["owner_id"].shift()) | (owned["frame"].diff() > 1)
     spell_id = new_spell.cumsum()
-    return owned.groupby(spell_id).agg(
+    return owned.assign(shot_id=shot).groupby(spell_id).agg(
         owner_id=("owner_id", "first"), team=("owner_team", "first"),
-        first_frame=("frame", "min"), last_frame=("frame", "max"),
+        first_frame=("frame", "min"), last_frame=("frame", "max"), shot_id=("shot_id", "first"),
     ).reset_index(drop=True)
 
 
@@ -44,6 +45,8 @@ def detect_passes(
     rows = []
     for prev, nxt in zip(spells.itertuples(), spells.iloc[1:].itertuples(), strict=False):
         if prev.owner_id == nxt.owner_id or (nxt.first_frame - prev.last_frame) / fps > max_gap_s:
+            continue
+        if prev.shot_id != nxt.shot_id:          # a camera cut in between: not a pass we saw
             continue
         dist = np.nan
         if xy is not None:

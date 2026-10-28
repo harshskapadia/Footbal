@@ -151,7 +151,12 @@ if run_root is None or not (run_root / "stats.json").exists():
 paths = RunPaths(run_root)
 stats = json.loads(paths.stats_json.read_text())
 st.header(f"Results: {stats['clip']}")
-st.caption(f"{stats['frames']} frames · {stats['duration_s']} s · {stats['fps']:.0f} fps")
+caption = f"{stats['frames']} frames · {stats['duration_s']} s · {stats['fps']:.0f} fps"
+if "shots" in stats:
+    sh = stats["shots"]
+    caption += (f" · analysed {sh['analysed_s']} s ({sh['analysed_fraction']:.0%}) in {sh['wide_shots']} wide "
+                f"shot(s) of {sh['shots']}; close-ups, replays and crowd shots are skipped")
+st.caption(caption)
 kits = stats.get("team_colours_hex", {})
 if kits:
     swatch = "&nbsp;&nbsp;".join(

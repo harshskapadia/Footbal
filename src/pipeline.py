@@ -22,6 +22,13 @@ from src.detect import run_detection
 from src.map_pitch import load_or_detect_keypoints, run_pitch_mapping
 from src.pitch.mapping import project_ball, project_tracks
 from src.pitch.template import PitchTemplate
+from src.shots.segmentation import (
+    frame_shot_ids,
+    refine_with_detections,
+    scan_video,
+    segment_shots,
+    shot_summary,
+)
 from src.track import clip_length, track_clip
 from src.utils.cli import RunContext
 from src.utils.progress import ProgressCallback, progress
@@ -32,7 +39,7 @@ from src.visualization.minimap import Minimap
 log = logging.getLogger(__name__)
 
 # Share of total run time per stage, used to report overall progress.
-STAGE_WEIGHTS = {"detect": 0.55, "track": 0.03, "teams": 0.07, "keypoints": 0.15, "analytics": 0.02,
+STAGE_WEIGHTS = {"shots": 0.04, "detect": 0.51, "track": 0.03, "teams": 0.07, "keypoints": 0.15, "analytics": 0.02,
                  "render": 0.18}
 DEFAULT_TEAM_BGR = {0: (60, 60, 220), 1: (220, 160, 60)}
 
@@ -83,7 +90,7 @@ def team_summary_table(summary: dict[str, Any]) -> pd.DataFrame:
 def render_final(
     ctx: RunContext, tracks: pd.DataFrame, positions: pd.DataFrame, ball: pd.DataFrame,
     ball_positions: pd.DataFrame, team_bgr: dict[int, tuple[int, int, int]],
-    callback: ProgressCallback | None = None,
+    callback: ProgressCallback | None = None, shot_ids: np.ndarray | None = None,
 ) -> Path:
     """Write ``annotated.mp4`` with players, speeds, ball, possession bar and minimap."""
     possession = pd.read_csv(ctx.paths.possession)
@@ -109,8 +116,11 @@ def render_final(
         for f, frame in enumerate(progress(read_frames(ctx.input_path, n), n, "render", callback)):
             total = counts[f].sum()
             share = {0: 100 * counts[f, 0] / total, 1: 100 * counts[f, 1] / total} if total else {0: 50, 1: 50}
-            sink.write_frame(annotator(frame, people_by_frame.get(f, empty), ball_idx.loc[f], int(owner.loc[f]),
-                                       share, ball_m.loc[f].to_numpy(float)))
+            out = annotator(frame, people_by_frame.get(f, empty), ball_idx.loc[f], int(owner.loc[f]),
+                            share, ball_m.loc[f].to_numpy(float))
+            if shot_ids is not None and shot_ids[f] < 0:
+                annotator.draw_not_analysed(out)
+            sink.write_frame(out)
     return ctx.paths.annotated_video
 
 
@@ -122,17 +132,31 @@ def run_pipeline(
     warnings: list[str] = []
     paths, cfg = ctx.paths, ctx.cfg
     n_frames, fps = clip_length(ctx.input_path, ctx.max_frames)
+    frame_height = get_video_info(ctx.input_path).height
 
-    # Stage 2: detection
+    # Shot segmentation: find cuts; candidate wide shots have mostly grass
+    shots = segment_shots(scan_video(ctx.input_path, n_frames, n_frames, cb), cfg, fps)
+    candidates = frame_shot_ids(shots, n_frames) >= 0
+
+    # Stage 2: detection (skipped on close-ups, replays and crowd shots)
     if options.detections_csv is not None:
         detections = pd.read_csv(options.detections_csv)
         detections = detections[detections["frame"] < n_frames]
     else:
-        detections = run_detection(ctx.input_path, cfg, ctx.max_frames, callback=cb)
-    detections.to_csv(paths.detections, index=False)
+        detections = run_detection(ctx.input_path, cfg, ctx.max_frames, callback=cb, frame_mask=candidates)
 
-    # Stage 3: tracking
-    tracks, ball = track_clip(detections, n_frames, fps, cfg, cb)
+    # Confirm wide shots by player size, then keep only their detections
+    shots = refine_with_detections(shots, detections, frame_height, cfg)
+    shots.to_csv(paths.shots, index=False)
+    shot_ids = frame_shot_ids(shots, n_frames)
+    if len(detections):
+        detections = detections[shot_ids[detections["frame"].to_numpy(int)] >= 0]
+    detections.to_csv(paths.detections, index=False)
+    if not (shot_ids >= 0).any():
+        warnings.append("No wide-camera shots found: nothing was analysed. Is this a broadcast match clip?")
+
+    # Stage 3: tracking (restarts at every cut)
+    tracks, ball = track_clip(detections, n_frames, fps, cfg, cb, shot_ids)
     tracks.to_csv(paths.tracks, index=False)
     ball.to_csv(paths.ball, index=False)
 
@@ -147,8 +171,8 @@ def run_pipeline(
 
     # Stage 5: pitch mapping
     try:
-        keypoints = load_or_detect_keypoints(ctx, n_frames, options.keypoints_csv, cb)
-        positions, ball_positions, _ = run_pitch_mapping(ctx, tracks, ball, teams, keypoints)
+        keypoints = load_or_detect_keypoints(ctx, n_frames, options.keypoints_csv, cb, shot_ids >= 0)
+        positions, ball_positions, _ = run_pitch_mapping(ctx, tracks, ball, teams, keypoints, shot_ids)
     except FileNotFoundError as e:
         warnings.append(str(e).splitlines()[0] + " Speed, distance, heatmaps and minimap are skipped.")
         template = PitchTemplate.from_config(cfg)
@@ -159,14 +183,17 @@ def run_pipeline(
         ball_positions.to_csv(paths.ball_positions, index=False)
     if teams is None:
         positions["team_id"], positions["role"] = -1, positions.get("class_name", "player")
+    ball_positions["shot_id"] = shot_ids[ball_positions["frame"].to_numpy(int)]
+    ball_positions.to_csv(paths.ball_positions, index=False)
 
     # Stage 6: analytics
     summary = run_analytics(ctx, positions, ball_positions, fps)
+    summary["shots"] = shot_summary(shots, fps)
     team_summary_table(summary).to_csv(paths.root / "team_summary.csv", index=False)
 
     # Stage 7: output video
     if options.render_video:
-        render_final(ctx, tracks, positions, ball, ball_positions, team_bgr, cb)
+        render_final(ctx, tracks, positions, ball, ball_positions, team_bgr, cb, shot_ids)
         if to_h264(paths.annotated_video, paths.web_video) is None:
             warnings.append("Could not create the H.264 copy; the dashboard may not play the video.")
 

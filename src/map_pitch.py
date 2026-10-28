@@ -14,6 +14,7 @@ import logging
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.pitch.draw import draw_pitch_overlay
@@ -28,17 +29,20 @@ from src.utils.video import get_video_info, open_writer, read_frames
 log = logging.getLogger(__name__)
 
 
-def detect_keypoints(ctx: RunContext, n_frames: int, callback: ProgressCallback | None = None) -> pd.DataFrame:
-    """Run the pitch keypoint model over the clip."""
+def detect_keypoints(ctx: RunContext, n_frames: int, callback: ProgressCallback | None = None,
+                     frame_mask: np.ndarray | None = None) -> pd.DataFrame:
+    """Run the pitch keypoint model over the clip (only where ``frame_mask`` is True, if given)."""
     detector = build_keypoint_detector(ctx.cfg, select_device(ctx.cfg.get("device", "auto")))
     rows: list[dict] = []
     for f, frame in enumerate(progress(read_frames(ctx.input_path, n_frames), n_frames, "keypoints", callback)):
-        rows.extend(keypoints_to_rows(f, *detector(frame)))
-    return pd.DataFrame(rows)
+        if frame_mask is None or (f < len(frame_mask) and frame_mask[f]):
+            rows.extend(keypoints_to_rows(f, *detector(frame)))
+    return pd.DataFrame(rows, columns=["frame", "keypoint", "x", "y", "confidence"])
 
 
 def load_or_detect_keypoints(
-    ctx: RunContext, n_frames: int, keypoints_csv: Path | None = None, callback: ProgressCallback | None = None
+    ctx: RunContext, n_frames: int, keypoints_csv: Path | None = None, callback: ProgressCallback | None = None,
+    frame_mask: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Keypoints from a given CSV, the run folder, or the model (in that order)."""
     if keypoints_csv is not None:
@@ -46,20 +50,20 @@ def load_or_detect_keypoints(
     if ctx.paths.keypoints.exists():
         log.info("Reusing keypoints from %s", ctx.paths.keypoints)
         return pd.read_csv(ctx.paths.keypoints)
-    df = detect_keypoints(ctx, n_frames, callback)
+    df = detect_keypoints(ctx, n_frames, callback, frame_mask)
     df.to_csv(ctx.paths.keypoints, index=False)
     return df
 
 
 def run_pitch_mapping(
     ctx: RunContext, tracks: pd.DataFrame, ball: pd.DataFrame, teams: pd.DataFrame | None,
-    keypoints: pd.DataFrame,
+    keypoints: pd.DataFrame, shot_ids: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """Compute smoothed homographies and pitch positions; write them to the run folder."""
     info = get_video_info(ctx.input_path)
     n_frames = len(ball)
     homographies, table = compute_homographies(
-        keypoints_by_frame(keypoints), n_frames, (info.width, info.height), ctx.cfg)
+        keypoints_by_frame(keypoints), n_frames, (info.width, info.height), ctx.cfg, shot_ids)
     table.to_csv(ctx.paths.homographies, index=False)
 
     template = PitchTemplate.from_config(ctx.cfg)

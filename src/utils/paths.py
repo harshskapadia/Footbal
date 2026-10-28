@@ -19,6 +19,11 @@ class RunPaths:
         root.mkdir(parents=True, exist_ok=True)
         return cls(root)
 
+    # Shot segmentation (edited footage)
+    @property
+    def shots(self) -> Path:
+        return self.root / "shots.csv"
+
     # Stage 2: detection
     @property
     def detections(self) -> Path:

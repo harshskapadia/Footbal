@@ -84,6 +84,15 @@ class FinalAnnotator:
             cv2.putText(frame, f"{share.get(team, 0):.0f}%", (tx, by + 13), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                         text_colour, 1, cv2.LINE_AA)
 
+    @staticmethod
+    def draw_not_analysed(frame: np.ndarray) -> None:
+        """Banner for frames outside wide-camera shots (close-ups, replays, crowd)."""
+        text = "Not analysed: close-up / replay / crowd shot"
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        x = (frame.shape[1] - tw) // 2 - 12
+        cv2.rectangle(frame, (x, 20), (x + tw + 24, 20 + th + 18), PANEL, -1)
+        cv2.putText(frame, text, (x + 12, 20 + th + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, TEXT, 1, cv2.LINE_AA)
+
     def __call__(
         self, frame: np.ndarray, people: pd.DataFrame, ball: pd.Series | None, owner_id: int,
         share: Mapping[int, float], ball_xy_m: np.ndarray | None,

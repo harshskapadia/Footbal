@@ -76,7 +76,11 @@ def compute_possession(
     df = pd.DataFrame({"frame": ball_positions["frame"].to_numpy(), "owner_id": stable,
                        "distance": np.round(dists, 2)})
     df["owner_team"] = df["owner_id"].map(team_of).fillna(NO_OWNER).astype(int)
-    df["team_in_possession"] = df["owner_team"].replace(NO_OWNER, np.nan).ffill().fillna(NO_OWNER).astype(int)
+    # Shot id per frame (-1 = not analysed); possession is never carried across a cut.
+    df["shot_id"] = ball_positions["shot_id"].to_numpy() if "shot_id" in ball_positions else 0
+    carried = df["owner_team"].replace(NO_OWNER, np.nan).groupby(df["shot_id"]).ffill()
+    df["team_in_possession"] = carried.fillna(NO_OWNER).astype(int)
+    df.loc[df["shot_id"] < 0, ["owner_id", "owner_team", "team_in_possession"]] = NO_OWNER
     return df
 
 

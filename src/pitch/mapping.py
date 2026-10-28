@@ -10,6 +10,7 @@ import pandas as pd
 
 from src.pitch.homography import apply_homography, fit_homography, reprojection_error, smooth_homographies
 from src.pitch.template import PitchTemplate
+from src.shots.segmentation import shot_runs
 
 H_COLUMNS = [f"h{i}{j}" for i in range(3) for j in range(3)]
 
@@ -44,8 +45,13 @@ def compute_homographies(
     n_frames: int,
     image_size: tuple[int, int],
     cfg: Mapping[str, Any],
+    shot_ids: np.ndarray | None = None,
 ) -> tuple[list[np.ndarray | None], pd.DataFrame]:
     """Fit per-frame homographies, then smooth them over time.
+
+    With ``shot_ids`` (one per frame, -1 = not analysed), smoothing runs
+    separately inside each shot, so a camera cut is never averaged over, and
+    frames outside analysed shots get no mapping.
 
     Returns:
         Smoothed homographies (``None`` where unavailable) and a per-frame
@@ -61,8 +67,13 @@ def compute_homographies(
         raw.append(h)
         rows.append({"frame": f, "raw_fit": h is not None, "inliers": n_inliers,
                      "reprojection_error_m": round(err, 3) if np.isfinite(err) else np.nan})
-    smoothed = smooth_homographies(raw, image_size, p["smoothing_window"], p["max_gap_frames"],
-                                   tuple(p["smoothing_grid_y"]))
+    shots = shot_ids if shot_ids is not None else np.zeros(n_frames, dtype=int)
+    smoothed: list[np.ndarray | None] = [None] * n_frames
+    for shot, start, end in shot_runs(shots):
+        if shot < 0:
+            continue
+        smoothed[start:end] = smooth_homographies(raw[start:end], image_size, p["smoothing_window"],
+                                                  p["max_gap_frames"], tuple(p["smoothing_grid_y"]))
     table = pd.DataFrame(rows)
     mats = np.array([h.ravel() / h[2, 2] if h is not None else np.full(9, np.nan) for h in smoothed])
     table[H_COLUMNS] = mats

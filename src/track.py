@@ -19,6 +19,7 @@ import supervision as sv
 
 from src.detection.classes import BALL
 from src.detection.io import BOX_COLUMNS, detections_to_rows, group_by_frame
+from src.shots.segmentation import shot_runs
 from src.tracking.ball import clean_ball_track
 from src.tracking.tracker import build_tracker, stabilise_track_classes, track_people
 from src.utils.cli import RunContext, base_parser, make_context
@@ -44,25 +45,51 @@ def track_clip(
     fps: float,
     cfg: dict[str, Any],
     callback: ProgressCallback | None = None,
+    shot_ids: np.ndarray | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Track people and clean the ball trajectory from stage 2 detections.
 
     Only boxes are needed, not pixels, so this does not read the video.
 
+    With ``shot_ids`` (one per frame, -1 = not analysed), the tracker restarts
+    at every cut so IDs never jump between camera shots (new IDs continue from
+    the highest one used so far), frames outside analysed shots get no tracks,
+    and ball gaps are only interpolated within a shot.
+
     Returns:
         ``tracks`` (one row per person per frame, with ``tracker_id``) and
         ``ball`` (one row per frame, NaN where unknown, ``interpolated`` flag).
     """
-    tracker = build_tracker(cfg, fps)
+    shots = shot_ids if shot_ids is not None else np.zeros(n_frames, dtype=int)
     per_frame = group_by_frame(detections) if not detections.empty else {}
     rows: list[dict] = []
+    tracker = build_tracker(cfg, fps)
+    offset, next_offset, current = 0, 0, shots[0] if n_frames else 0
     for i in progress(range(n_frames), n_frames, "track", callback):
-        rows.extend(detections_to_rows(i, track_people(tracker, per_frame.get(i, sv.Detections.empty()))))
+        if shots[i] != current:                   # cut: fresh tracker, IDs continue upwards
+            tracker, offset, current = build_tracker(cfg, fps), next_offset, shots[i]
+        if shots[i] < 0:
+            continue
+        tracked = track_people(tracker, per_frame.get(i, sv.Detections.empty()))
+        if len(tracked) and tracked.tracker_id is not None:
+            tracked.tracker_id = tracked.tracker_id + offset
+            next_offset = max(next_offset, int(tracked.tracker_id.max()) + 1)
+        rows.extend(detections_to_rows(i, tracked))
 
     tracks = stabilise_track_classes(pd.DataFrame(rows))
     bi = cfg["ball_interpolation"]
     balls = detections[detections["class_id"] == BALL] if not detections.empty else detections
-    ball = clean_ball_track(balls, n_frames, bi["max_gap_frames"], bi["max_speed_px_per_frame"])
+    parts = []
+    for shot, start, end in shot_runs(shots):
+        in_shot = balls[(balls["frame"] >= start) & (balls["frame"] < end)] if len(balls) else balls
+        local = in_shot.assign(frame=in_shot["frame"] - start) if len(in_shot) else in_shot
+        part = clean_ball_track(local, end - start, bi["max_gap_frames"], bi["max_speed_px_per_frame"])
+        part["frame"] += start
+        if shot < 0:                              # not analysed: no ball either
+            part[[*BOX_COLUMNS, "confidence"]] = np.nan
+        parts.append(part)
+    ball = pd.concat(parts).sort_values("frame").reset_index(drop=True) if parts else \
+        clean_ball_track(balls, n_frames, bi["max_gap_frames"], bi["max_speed_px_per_frame"])
     return tracks, ball
 
 

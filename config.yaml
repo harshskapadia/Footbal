@@ -43,6 +43,17 @@ ball:
   iou: 0.1
   imgsz: 640
 
+shots:
+  # Highlights cut between the wide camera, close-ups, replays and crowd shots. Only
+  # wide shots are analysed; trackers, ball interpolation and homography smoothing
+  # restart at every cut. A single continuous wide clip is simply one shot.
+  enabled: true
+  cut_threshold: 0.35           # colour-histogram distance between frames (0..1) that counts as a cut
+  cut_relative: 4.0             # ... and it must be this many times the local median change
+  min_shot_s: 1.0               # shorter wide shots are not analysed
+  min_grass_ratio: 0.35         # wide shots show mostly pitch
+  max_person_height: 0.22       # median player box height / frame height; close-ups are larger
+
 tracking:
   # ByteTrack (roboflow `trackers` package). A new track needs confidence above
   # both thresholds below, so keep them close to detection.conf.

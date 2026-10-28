@@ -4,6 +4,29 @@ How each stage works, what it writes, and the design decisions behind it. Every
 stage reads and writes files in `outputs/<clip>/`, so each one can be re-run on its
 own. See the [README](../README.md) for setup and the overview.
 
+## Shot segmentation (before detection)
+
+Edited footage (highlights, full broadcasts) switches between cameras, so the clip
+is first split into shots (`src/shots/segmentation.py`, settings under `shots:` in
+`config.yaml`):
+
+1. **Scan:** for every frame (downscaled to 160×90), a hue/saturation histogram and
+   the share of grass pixels.
+2. **Cuts:** the Bhattacharyya distance between consecutive histograms must be above
+   0.35 **and** 4× the local median, so steady fast pans don't count. Shots shorter
+   than 5 frames (flashes, wipes, encoder glitches) are merged into a neighbour.
+3. **Wide or not:** median grass ratio ≥ 0.35 and length ≥ 1 s mark a candidate.
+   After detection, a candidate is rejected if its median player box is taller than
+   22% of the frame (a close-up on grass) or it has no players.
+4. **Everything downstream respects shots:** detection and keypoints run only on
+   candidates; the tracker restarts at each cut, with new IDs continuing upwards;
+   ball interpolation, homography smoothing and possession stay within a shot; and a
+   pass needs both players in the same shot.
+
+On a test reel (wide shot → close-up → non-pitch shot → wide shot from a different
+camera position), all three cuts were found, only the two wide shots were analysed,
+and no track, homography or pass crossed a cut. `tests/test_shots.py` checks this.
+
 ## Stage 2: detection
 
 ```bash

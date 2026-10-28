@@ -52,6 +52,7 @@ def run_detection(
     max_frames: int | None = None,
     video_out: Path | None = None,
     callback: ProgressCallback | None = None,
+    frame_mask: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Run detection over a clip.
 
@@ -61,6 +62,8 @@ def run_detection(
         max_frames: Only process the first N frames.
         video_out: If given, also write an annotated video here.
         callback: Optional progress callback ``(fraction, stage)``.
+        frame_mask: Optional boolean per frame; frames marked False are skipped
+            (e.g. close-ups and replays in highlights).
 
     Returns:
         One row per box (see ``src.detection.io.CSV_COLUMNS``).
@@ -79,7 +82,10 @@ def run_detection(
     with contextlib.ExitStack() as stack:
         sink = stack.enter_context(open_writer(video_out, info)) if video_out else None
         for i, frame in enumerate(progress(read_frames(input_path, max_frames), total, "detect", callback)):
-            detections = detect_frame(frame, detector, ball_detector)
+            if frame_mask is not None and (i >= len(frame_mask) or not frame_mask[i]):
+                detections = sv.Detections.empty()
+            else:
+                detections = detect_frame(frame, detector, ball_detector)
             rows.extend(detections_to_rows(i, detections))
             if sink is not None:
                 sink.write_frame(annotator(frame, detections))

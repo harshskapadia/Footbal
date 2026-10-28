@@ -47,6 +47,8 @@ def train(cfg: dict[str, Any], device: str) -> Path:
     train_args["project"] = str(resolve_path(train_args.get("project", "runs/detect")))
     model.train(data=str(data), device=device, **train_args)
 
+    if model.trainer is None:
+        raise RuntimeError("Training did not start")
     best = Path(model.trainer.save_dir) / "weights" / "best.pt"
     export_to = resolve_path(cfg["export_to"])
     export_to.parent.mkdir(parents=True, exist_ok=True)

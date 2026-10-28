@@ -28,7 +28,7 @@ class PitchCanvas:
         return (round((self.template.length + 2 * self.padding) * self.scale),
                 round((self.template.width + 2 * self.padding) * self.scale))
 
-    def to_pixels(self, xy_m: np.ndarray) -> np.ndarray:
+    def to_pixels(self, xy_m: np.ndarray | list[list[float]]) -> np.ndarray:
         """Convert ``(N, 2)`` metres to ``(N, 2)`` float pixel coordinates."""
         return (np.asarray(xy_m, dtype=float) + self.padding) * self.scale
 

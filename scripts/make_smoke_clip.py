@@ -19,7 +19,7 @@ from ultralytics.utils import ASSETS
 def make_clip(out: Path, seconds: int = 3, fps: int = 25, size: tuple[int, int] = (1280, 720)) -> Path:
     """Write a clip that slowly pans across each sample image (simulated camera motion)."""
     w, h = size
-    writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    writer = cv2.VideoWriter(str(out), cv2.VideoWriter.fourcc(*"mp4v"), fps, size)
     images = [cv2.imread(str(ASSETS / name)) for name in ("zidane.jpg", "bus.jpg")]
     n = seconds * fps // len(images)
     for img in images:

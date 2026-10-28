@@ -11,7 +11,6 @@ import zipfile
 from pathlib import Path
 
 import cv2
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -134,7 +133,10 @@ if clip is not None and st.button("Run analysis", type="primary"):
     ctx = RunContext(cfg, clip, RunPaths.for_clip(OUTPUT_DIR, clip), int(max_frames) or None)
     bar = st.progress(0.0, text="Starting…")
     try:
-        result = run_pipeline(ctx, options, lambda f, stage: bar.progress(f, text=f"{stage}… {f:.0%}"))
+        def report(fraction: float, stage: str) -> None:
+            bar.progress(fraction, text=f"{stage}… {fraction:.0%}")
+
+        result = run_pipeline(ctx, options, report)
     except Exception as e:  # noqa: BLE001 - show any failure in the UI
         bar.empty()
         st.error(f"Pipeline failed: {e}")
@@ -190,7 +192,7 @@ with tab_map:
     positions = load_csv(paths.positions)
     ball_pos = load_csv(paths.ball_positions)
     possession = load_csv(paths.possession)
-    if positions is not None and positions["x_m"].notna().any():
+    if positions is not None and ball_pos is not None and positions["x_m"].notna().any():
         frame = st.slider("Frame", 0, int(stats["frames"]) - 1, 0)
         minimap = Minimap(PitchTemplate.from_config(CFG), team_colours(run_root), scale=8.0)
         people = positions[positions["frame"] == frame]
@@ -204,14 +206,14 @@ with tab_map:
     heat = [paths.heatmap(t) for t in (0, 1) if paths.heatmap(t).exists()]
     if heat:
         c = st.columns(len(heat))
-        for col, img_path in zip(c, heat):
+        for col, img_path in zip(c, heat, strict=True):
             col.image(str(img_path), width="stretch")
 
 with tab_net:
     nets = [paths.passing_network(t) for t in (0, 1) if paths.passing_network(t).exists()]
     if nets:
         c = st.columns(len(nets))
-        for col, img_path in zip(c, nets):
+        for col, img_path in zip(c, nets, strict=True):
             col.image(str(img_path), width="stretch")
     else:
         st.info("Passing networks need a pitch mapping.")

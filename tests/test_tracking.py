@@ -14,10 +14,13 @@ def people_frame(t: int, include: tuple[bool, bool] = (True, True)) -> sv.Detect
     """Two players running towards each other on the same row, plus a ball."""
     boxes, classes = [], []
     if include[0]:
-        boxes.append([100 + 8 * t, 300, 140 + 8 * t, 400]); classes.append(PLAYER)
+        boxes.append([100 + 8 * t, 300, 140 + 8 * t, 400])
+        classes.append(PLAYER)
     if include[1]:
-        boxes.append([600 - 8 * t, 310, 640 - 8 * t, 410]); classes.append(REFEREE)
-    boxes.append([400, 500, 410, 510]); classes.append(BALL)
+        boxes.append([600 - 8 * t, 310, 640 - 8 * t, 410])
+        classes.append(REFEREE)
+    boxes.append([400, 500, 410, 510])
+    classes.append(BALL)
     return sv.Detections(xyxy=np.array(boxes, float), confidence=np.full(len(boxes), 0.9),
                          class_id=np.array(classes))
 
@@ -29,7 +32,7 @@ def test_ids_stay_stable_through_missed_detections() -> None:
         include = (t not in (10, 11, 12), True)  # player missed for 3 frames
         out = track_people(tracker, people_frame(t, include))
         assert BALL not in out.class_id
-        for c, tid in zip(out.class_id, out.tracker_id):
+        for c, tid in zip(out.class_id, out.tracker_id, strict=True):
             ids_by_class[int(c)].add(int(tid))
     assert len(ids_by_class[PLAYER]) == 1
     assert len(ids_by_class[REFEREE]) == 1

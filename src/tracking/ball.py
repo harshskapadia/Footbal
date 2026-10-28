@@ -54,10 +54,10 @@ def remove_ball_outliers(table: pd.DataFrame, max_speed_px: float) -> pd.DataFra
         return float(np.linalg.norm(centres[i] - centres[j]) / abs(i - j))
 
     outliers = {
-        i for prev, i, nxt in zip(valid[:-2], valid[1:-1], valid[2:])
+        i for prev, i, nxt in zip(valid[:-2], valid[1:-1], valid[2:], strict=True)
         if speed(i, prev) > max_speed_px and speed(i, nxt) > max_speed_px
     }
-    kept = [i for i in valid if i not in outliers]
+    kept = [int(i) for i in valid if i not in outliers]
     if len(kept) >= 3:
         if speed(kept[0], kept[1]) > max_speed_px:
             outliers.add(kept[0])

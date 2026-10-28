@@ -41,8 +41,8 @@ class SlicedBallDetector:
             raise ValueError(f"Model has no ball class. Model classes: {model.names}")
         self.slicer = sv.InferenceSlicer(
             callback=self._predict_tile,
-            slice_wh=tuple(slice_wh),
-            overlap_wh=tuple(overlap_wh),
+            slice_wh=(int(slice_wh[0]), int(slice_wh[1])),
+            overlap_wh=(int(overlap_wh[0]), int(overlap_wh[1])),
             overlap_filter=sv.OverlapFilter.NON_MAX_SUPPRESSION,
             iou_threshold=iou,
             thread_workers=1,
@@ -73,6 +73,6 @@ def build_ball_detector(cfg: Mapping[str, Any], device: str) -> SlicedBallDetect
     return SlicedBallDetector(
         model, cfg["detection"]["class_map"], device,
         conf=b["conf"], iou=b["iou"], imgsz=b["imgsz"],
-        slice_wh=tuple(b["slice_wh"]), overlap_wh=tuple(b["overlap_wh"]),
+        slice_wh=(b["slice_wh"][0], b["slice_wh"][1]), overlap_wh=(b["overlap_wh"][0], b["overlap_wh"][1]),
     )
 

@@ -42,7 +42,7 @@ def detect_passes(
     spells = control_spells(possession)
     xy = positions.set_index(["frame", "tracker_id"])[["x_m", "y_m"]] if positions is not None else None
     rows = []
-    for prev, nxt in zip(spells.itertuples(), spells.iloc[1:].itertuples()):
+    for prev, nxt in zip(spells.itertuples(), spells.iloc[1:].itertuples(), strict=False):
         if prev.owner_id == nxt.owner_id or (nxt.first_frame - prev.last_frame) / fps > max_gap_s:
             continue
         dist = np.nan

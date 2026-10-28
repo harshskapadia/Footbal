@@ -1,0 +1,5 @@
+# Linting and type checking (CI and local development).
+-r requirements.txt
+ruff==0.17.3
+mypy==2.4.0
+types-PyYAML==6.0.12.20260906

@@ -34,12 +34,12 @@ class PitchKeypointDetector:
 
         If the model finds several pitch instances, the most confident one is used.
         """
-        result = self.model.predict(frame, imgsz=self.imgsz, device=self.device, verbose=False)[0]
+        result: Any = list(self.model.predict(frame, imgsz=self.imgsz, device=self.device, verbose=False))[0]
         if result.keypoints is None or len(result.keypoints) == 0:
             return np.zeros((32, 2)), np.zeros(32)
-        xy = result.keypoints.xy.cpu().numpy()
-        conf = result.keypoints.conf
-        conf = conf.cpu().numpy() if conf is not None else np.ones(xy.shape[:2])
+        xy = np.asarray(result.keypoints.xy.cpu())
+        raw_conf = result.keypoints.conf
+        conf = np.asarray(raw_conf.cpu()) if raw_conf is not None else np.ones(xy.shape[:2])
         best = int(conf.mean(axis=1).argmax())
         return xy[best], conf[best]
 
@@ -56,7 +56,7 @@ def build_keypoint_detector(cfg: Mapping[str, Any], device: str) -> PitchKeypoin
 def keypoints_to_rows(frame_idx: int, xy: np.ndarray, conf: np.ndarray) -> list[dict]:
     """Flatten one frame's keypoints into CSV rows."""
     return [{"frame": frame_idx, "keypoint": k, "x": round(float(x), 2), "y": round(float(y), 2),
-             "confidence": round(float(c), 3)} for k, ((x, y), c) in enumerate(zip(xy, conf))]
+             "confidence": round(float(c), 3)} for k, ((x, y), c) in enumerate(zip(xy, conf, strict=True))]
 
 
 def keypoints_by_frame(df: pd.DataFrame, n_keypoints: int = 32) -> dict[int, tuple[np.ndarray, np.ndarray]]:

@@ -54,11 +54,11 @@ def noisy_detections(
         jitter = rng.normal(0, 1.0, 4)
         det.append({"frame": f, "class_id": NAME_TO_ID[a.role], "class_name": a.role,
                     "confidence": round(float(rng.uniform(0.55, 0.95)), 4),
-                    **dict(zip(["x1", "y1", "x2", "y2"], np.round(clipped + jitter, 1)))})
+                    **dict(zip(["x1", "y1", "x2", "y2"], np.round(clipped + jitter, 1), strict=True))})
     if visible_fraction(ball_box, w, h) == 1.0 and rng.random() < 0.7:
         det.append({"frame": f, "class_id": BALL, "class_name": "ball",
                     "confidence": round(float(rng.uniform(0.3, 0.8)), 4),
-                    **dict(zip(["x1", "y1", "x2", "y2"], np.round(ball_box + rng.normal(0, 0.5, 4), 1)))})
+                    **dict(zip(["x1", "y1", "x2", "y2"], np.round(ball_box + rng.normal(0, 0.5, 4), 1), strict=True))})
     elif rng.random() < 0.02:                 # false positive somewhere on the grass
         x, y = rng.uniform(50, w - 50), rng.uniform(0.3 * h, h - 20)
         det.append({"frame": f, "class_id": BALL, "class_name": "ball", "confidence": 0.3,
@@ -115,7 +115,7 @@ def generate(out_video: Path, seconds: float = 10.0, fps: float = 25.0, seed: in
     data_dir = data_dir or resolve_path("data/synthetic") / out_video.stem
     data_dir.mkdir(parents=True, exist_ok=True)
     out_video.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter.fourcc(*"mp4v"), fps, size)
     det_rows, kp_rows, gt_rows = [], [], []
     frames = render_match(sim, homographies, size, template)
     for f, (frame, boxes, ball_box) in enumerate(progress(frames, n_frames, "simulate")):

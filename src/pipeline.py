@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from src.analyze import run_analytics
-from src.assign_teams import run_team_assignment, save_team_colours
+from src.assign_teams import run_team_assignment
 from src.detect import run_detection
 from src.map_pitch import load_or_detect_keypoints, run_pitch_mapping
 from src.pitch.mapping import project_ball, project_tracks
@@ -37,7 +37,7 @@ STAGE_WEIGHTS = {"detect": 0.55, "track": 0.03, "teams": 0.07, "keypoints": 0.15
 DEFAULT_TEAM_BGR = {0: (60, 60, 220), 1: (220, 160, 60)}
 
 
-@dataclass
+@dataclass(frozen=True)
 class PipelineOptions:
     """Optional inputs that replace a model's output (useful for testing and re-runs)."""
 
@@ -152,7 +152,7 @@ def run_pipeline(
     except FileNotFoundError as e:
         warnings.append(str(e).splitlines()[0] + " Speed, distance, heatmaps and minimap are skipped.")
         template = PitchTemplate.from_config(cfg)
-        no_mapping = [None] * n_frames
+        no_mapping: list[np.ndarray | None] = [None] * n_frames
         positions = project_tracks(tracks, teams, no_mapping, template, 0.0)
         ball_positions = project_ball(ball, no_mapping, template, 0.0)
         positions.to_csv(paths.positions, index=False)
@@ -184,6 +184,3 @@ def save_team_colours_default(path: Path) -> None:
     """Write the fallback team colours when clustering was impossible."""
     path.write_text(json.dumps({str(t): {"bgr": list(c), "hex": "#{:02X}{:02X}{:02X}".format(*c[::-1])}
                                 for t, c in DEFAULT_TEAM_BGR.items()}, indent=2))
-
-
-__all__ = ["PipelineOptions", "PipelineResult", "run_pipeline", "save_team_colours"]

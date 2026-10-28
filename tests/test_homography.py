@@ -78,7 +78,8 @@ def test_frame_homography_ignores_low_confidence_keypoints() -> None:
 
 def _grid_error(h_est: np.ndarray, pitch_to_image: np.ndarray) -> float:
     probe = np.array([[x, y] for x in (35.0, 52.5, 70.0) for y in (15.0, 34.0, 55.0)])
-    return float(np.linalg.norm(apply_homography(h_est, apply_homography(pitch_to_image, probe)) - probe, axis=1).mean())
+    mapped = apply_homography(h_est, apply_homography(pitch_to_image, probe))
+    return float(np.linalg.norm(mapped - probe, axis=1).mean())
 
 
 def test_smoothing_reduces_jitter_fills_gaps_and_rejects_glitches() -> None:
@@ -86,7 +87,7 @@ def test_smoothing_reduces_jitter_fills_gaps_and_rejects_glitches() -> None:
     n = 60
     cams = [camera(cx=40 + 0.2 * f) for f in range(n)]              # slow pan
     raw = []
-    for f, cam in enumerate(cams):
+    for cam in cams:
         img, pitch = visible_keypoints(cam)
         h, _ = fit_homography(img + rng.normal(0, 2.0, img.shape), pitch)
         raw.append(h)

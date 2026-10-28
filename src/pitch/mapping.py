@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -81,7 +81,7 @@ def _project(points_px: np.ndarray, h: np.ndarray | None) -> np.ndarray:
 
 
 def project_tracks(
-    tracks: pd.DataFrame, teams: pd.DataFrame | None, homographies: list[np.ndarray | None],
+    tracks: pd.DataFrame, teams: pd.DataFrame | None, homographies: Sequence[np.ndarray | None],
     template: PitchTemplate, margin: float,
 ) -> pd.DataFrame:
     """Project each person's feet (bottom-centre of their box) onto the pitch.
@@ -106,7 +106,7 @@ def project_tracks(
 
 
 def project_ball(
-    ball: pd.DataFrame, homographies: list[np.ndarray | None], template: PitchTemplate, margin: float
+    ball: pd.DataFrame, homographies: Sequence[np.ndarray | None], template: PitchTemplate, margin: float
 ) -> pd.DataFrame:
     """Project the ball onto the pitch for every frame.
 
@@ -118,7 +118,7 @@ def project_ball(
     df["x_px"] = (ball["x1"] + ball["x2"]) / 2
     df["y_px"] = ball["y2"]
     xy = np.full((len(df), 2), np.nan)
-    for i, (f, x, y) in enumerate(zip(df["frame"], df["x_px"], df["y_px"])):
+    for i, (f, x, y) in enumerate(zip(df["frame"], df["x_px"], df["y_px"], strict=True)):
         h = homographies[f] if f < len(homographies) else None
         if h is not None and np.isfinite(x):
             xy[i] = apply_homography(h, np.array([[x, y]]))[0]

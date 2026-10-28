@@ -141,7 +141,7 @@ def distance_metrics(stats: pd.DataFrame, positions: pd.DataFrame, track_agent: 
             continue
         frames = np.sort(positions.loc[positions["tracker_id"] == row.tracker_id, "frame"].to_numpy())
         steps = [np.linalg.norm(gt.loc[(agent, b)].to_numpy() - gt.loc[(agent, a)].to_numpy())
-                 for a, b in zip(frames[:-1], frames[1:]) if b == a + 1]
+                 for a, b in zip(frames[:-1], frames[1:], strict=True) if b == a + 1]
         true_d = float(np.sum(steps))
         if true_d > 0:
             errors.append(100 * (row.distance_m - true_d) / true_d)

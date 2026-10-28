@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.detection.io import BOX_COLUMNS
 from src.team_assignment.classifier import TeamClassifier
 from src.team_assignment.features import shirt_colour, shirt_crop
 from src.utils.progress import ProgressCallback, progress
@@ -119,7 +118,7 @@ def assign_teams(
 
     teams.loc[teams["role"] == "referee", "team_id"] = NO_TEAM
     team_of = dict(zip(teams.loc[teams["role"] == "player", "tracker_id"],
-                       teams.loc[teams["role"] == "player", "team_id"]))
+                       teams.loc[teams["role"] == "player", "team_id"], strict=True))
     gks = teams.loc[teams["role"] == "goalkeeper", "tracker_id"].tolist()
     for gk, team in assign_goalkeepers(tracks, team_of, gks).items():
         teams.loc[teams["tracker_id"] == gk, "team_id"] = team

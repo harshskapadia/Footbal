@@ -31,7 +31,7 @@ class Minimap:
         img = self.background.copy()
         people = people.dropna(subset=["x_m", "y_m"])
         pts = self.canvas.to_pixels(people[["x_m", "y_m"]].to_numpy(float)).round().astype(int)
-        for (x, y), team, tid in zip(pts, people["team_id"], people["tracker_id"]):
+        for (x, y), team, tid in zip(pts, people["team_id"], people["tracker_id"], strict=True):
             colour = self.team_bgr.get(int(team), NEUTRAL) if pd.notna(team) else NEUTRAL
             if tid == owner_id:
                 cv2.circle(img, (x, y), self.radius + 3, OWNER_RING, 2, cv2.LINE_AA)

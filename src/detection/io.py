@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import supervision as sv
 
-from src.detection.classes import CLASS_NAMES
+from src.detection.classes import CLASS_NAMES, class_ids
 
 CSV_COLUMNS = ["frame", "class_id", "class_name", "confidence", "x1", "y1", "x2", "y2"]
 BOX_COLUMNS = ["x1", "y1", "x2", "y2"]
@@ -17,7 +17,8 @@ BOX_COLUMNS = ["x1", "y1", "x2", "y2"]
 def detections_to_rows(frame_idx: int, detections: sv.Detections) -> list[dict]:
     """Flatten detections into CSV rows (adds ``tracker_id`` when present)."""
     rows = []
-    for i, (b, c, p) in enumerate(zip(detections.xyxy, detections.class_id, detections.confidence)):
+    confidence = detections.confidence if detections.confidence is not None else np.ones(len(detections))
+    for i, (b, c, p) in enumerate(zip(detections.xyxy, class_ids(detections), confidence, strict=True)):
         row = {
             "frame": frame_idx, "class_id": int(c), "class_name": CLASS_NAMES[int(c)],
             "confidence": round(float(p), 4),
@@ -40,7 +41,7 @@ def rows_to_detections(df: pd.DataFrame) -> sv.Detections:
         class_id=df["class_id"].to_numpy(dtype=int),
         tracker_id=df["tracker_id"].to_numpy(dtype=int) if "tracker_id" in df else None,
     )
-    detections.data["class_name"] = np.array([CLASS_NAMES[c] for c in detections.class_id])
+    detections.data["class_name"] = np.array([CLASS_NAMES[int(c)] for c in class_ids(detections)])
     return detections
 
 

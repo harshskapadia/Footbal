@@ -17,7 +17,7 @@ heatmaps and a 2D minimap.
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | done |
 | 7. Output (video, CSV, JSON) | done |
 | 8. Streamlit dashboard | done |
-| 9. Tests, typing, CLI | todo |
+| 9. Tests, typing, CLI | done |
 | 10. Documentation | todo |
 
 ## Repository layout
@@ -59,8 +59,11 @@ Requires Python 3.11.
 python3.11 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest -q
+pytest -q                          # 62 tests, ~15 s, no downloads or GPU needed
 ```
+
+For development: `pip install -r requirements-dev.txt`, then `ruff check .` and
+`mypy src streamlit_app.py`. CI runs all three on every push.
 
 On Linux, `pip install torch` from PyPI ships the CUDA build, which also runs on
 CPU. On a CPU-only machine you can save about 2 GB by installing the CPU wheel first:

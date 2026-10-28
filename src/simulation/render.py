@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import cv2
 import numpy as np
 
@@ -38,15 +40,15 @@ def camera_homographies(
     homography changes every frame, as in real broadcast footage.
     """
     w, h = image_size
-    image_quad = np.float32([[0, 0.12 * h], [w, 0.12 * h], [w, h], [0, h]])
+    image_quad = np.array([[0, 0.12 * h], [w, 0.12 * h], [w, h], [0, h]], dtype=np.float32)
     out = np.zeros((len(ball), 3, 3))
     cx = float(np.clip(ball[0, 0], 30, template.length - 30))
     for f, (bx, _) in enumerate(ball):
         cx += 0.06 * (np.clip(bx, 30, template.length - 30) - cx)
         zoom = 1.0 + 0.12 * np.sin(2 * np.pi * f / (fps * 8))
         far, near = 32.0 / zoom, 21.0 / zoom
-        world_quad = np.float32([[cx - far, -1], [cx + far, -1], [cx + near, template.width + 3],
-                                 [cx - near, template.width + 3]])
+        world_quad = np.array([[cx - far, -1], [cx + far, -1], [cx + near, template.width + 3],
+                               [cx - near, template.width + 3]], dtype=np.float32)
         out[f] = cv2.getPerspectiveTransform(world_quad, image_quad)
     return out
 
@@ -103,7 +105,7 @@ def render_frame(
 def render_match(
     sim: MatchSimulation, homographies: np.ndarray, image_size: tuple[int, int] = (1280, 720),
     template: PitchTemplate = PitchTemplate(),
-):
+) -> Iterator[tuple[np.ndarray, dict[int, np.ndarray], np.ndarray]]:
     """Yield ``(frame, boxes, ball_box)`` for every simulated frame."""
     canvas = PitchCanvas(template, scale=12.0, padding=10.0)
     background = draw_pitch(canvas, line_px=3)

@@ -13,24 +13,25 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import supervision as sv
 
-from src.detection.classes import BALL
+from src.detection.classes import BALL, class_ids, subset
 from src.detection.detector import ObjectDetector, build_detector, keep_best_ball
 from src.detection.io import CSV_COLUMNS, detections_to_rows
 from src.detection.slicing import SlicedBallDetector, build_ball_detector
 from src.utils.cli import base_parser, make_context
 from src.utils.device import select_device
 from src.utils.progress import ProgressCallback, progress
-from src.utils.video import get_video_info, open_writer, read_frames
+from src.utils.video import frame_count, get_video_info, open_writer, read_frames
 from src.visualization.draw import DetectionAnnotator
 
 log = logging.getLogger(__name__)
 
 
 def detect_frame(
-    frame, detector: ObjectDetector, ball_detector: SlicedBallDetector | None = None
+    frame: np.ndarray, detector: ObjectDetector, ball_detector: SlicedBallDetector | None = None
 ) -> sv.Detections:
     """Detect people and the ball in one frame.
 
@@ -41,7 +42,7 @@ def detect_frame(
     if ball_detector is not None:
         sliced_ball = ball_detector(frame)
         if len(sliced_ball):
-            detections = sv.Detections.merge([detections[detections.class_id != BALL], sliced_ball])
+            detections = sv.Detections.merge([subset(detections, class_ids(detections) != BALL), sliced_ball])
     return keep_best_ball(detections)
 
 
@@ -70,7 +71,7 @@ def run_detection(
     ball_detector = build_ball_detector(cfg, device) if cfg["ball"]["use_slicing"] else None
     annotator = DetectionAnnotator()
     info = get_video_info(input_path)
-    total = min(info.total_frames, max_frames) if max_frames else info.total_frames
+    total = frame_count(info, max_frames)
 
     rows: list[dict] = []
     n_frames = 0

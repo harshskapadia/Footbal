@@ -17,6 +17,14 @@ def get_video_info(path: str | Path) -> sv.VideoInfo:
     return sv.VideoInfo.from_video_path(str(path))
 
 
+def frame_count(info: sv.VideoInfo, max_frames: int | None = None) -> int | None:
+    """Frames to process: the clip length capped at ``max_frames`` (None if the length is unknown)."""
+    total = info.total_frames
+    if total is None:
+        return max_frames
+    return min(total, max_frames) if max_frames else total
+
+
 def read_frames(path: str | Path, max_frames: int | None = None) -> Iterator[np.ndarray]:
     """Yield BGR frames from a video, optionally stopping after ``max_frames``."""
     get_video_info(path)  # fail early with a clear error if missing

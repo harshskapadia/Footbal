@@ -10,7 +10,7 @@ import pandas as pd
 import supervision as sv
 from trackers import ByteTrackTracker
 
-from src.detection.classes import BALL, CLASS_NAMES
+from src.detection.classes import BALL, CLASS_NAMES, class_ids, subset
 
 
 def build_tracker(cfg: Mapping[str, Any], fps: float) -> ByteTrackTracker:
@@ -34,11 +34,11 @@ def track_people(
     The ball is excluded: it is small, fast and often missing, so it is handled
     by interpolation instead (see ``src.tracking.ball``).
     """
-    people = detections[detections.class_id != BALL] if len(detections) else detections
+    people = subset(detections, class_ids(detections) != BALL) if len(detections) else detections
     tracked = tracker.update(people, frame)
-    if len(tracked) == 0:
+    if len(tracked) == 0 or tracked.tracker_id is None:
         return tracked
-    return tracked[tracked.tracker_id >= 0]
+    return subset(tracked, tracked.tracker_id >= 0)
 
 
 def stabilise_track_classes(tracks: pd.DataFrame) -> pd.DataFrame:

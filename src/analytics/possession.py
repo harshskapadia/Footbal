@@ -72,8 +72,8 @@ def compute_possession(
         owners.append(owner)
         dists.append(dist)
 
-    owner = debounce(np.array(owners), max(1, round(a["min_control_s"] * fps)))
-    df = pd.DataFrame({"frame": ball_positions["frame"].to_numpy(), "owner_id": owner,
+    stable = debounce(np.array(owners), max(1, round(a["min_control_s"] * fps)))
+    df = pd.DataFrame({"frame": ball_positions["frame"].to_numpy(), "owner_id": stable,
                        "distance": np.round(dists, 2)})
     df["owner_team"] = df["owner_id"].map(team_of).fillna(NO_OWNER).astype(int)
     df["team_in_possession"] = df["owner_team"].replace(NO_OWNER, np.nan).ffill().fillna(NO_OWNER).astype(int)

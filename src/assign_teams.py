@@ -74,7 +74,7 @@ def crop_sheet(video: Path, tracks: pd.DataFrame, teams: pd.DataFrame, per_group
                 rows[row_idx].append(cv2.resize(crop, size))
     label_w = 170
     sheet = []
-    for (role, team), crops in zip(groups.index, rows):
+    for (role, team), crops in zip(groups.index, rows, strict=True):
         strip = np.full((size[1], label_w + per_group * size[0], 3), 255, np.uint8)
         cv2.putText(strip, f"{role} team={team}", (5, size[1] // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1)
         for k, c in enumerate(crops[:per_group]):

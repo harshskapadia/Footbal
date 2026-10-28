@@ -23,7 +23,7 @@ from src.tracking.ball import clean_ball_track
 from src.tracking.tracker import build_tracker, stabilise_track_classes, track_people
 from src.utils.cli import RunContext, base_parser, make_context
 from src.utils.progress import ProgressCallback, progress
-from src.utils.video import get_video_info, open_writer, read_frames
+from src.utils.video import frame_count, get_video_info, open_writer, read_frames
 from src.visualization.draw import TrackAnnotator
 
 log = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ log = logging.getLogger(__name__)
 def clip_length(input_path: Path, max_frames: int | None) -> tuple[int, float]:
     """Return the number of frames to process and the clip's fps."""
     info = get_video_info(input_path)
-    n = min(info.total_frames, max_frames) if max_frames else info.total_frames
+    n = frame_count(info, max_frames)
+    if n is None:  # container without a frame count: count by decoding
+        n = sum(1 for _ in read_frames(input_path))
     return n, float(info.fps)
 
 

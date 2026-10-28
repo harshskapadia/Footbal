@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import supervision as sv
 
-from src.detection.classes import BALL, CLASS_NAMES
+from src.detection.classes import BALL, CLASS_NAMES, class_ids, subset
 
 # Colours indexed by canonical class id: ball, goalkeeper, player, referee
 CLASS_PALETTE = sv.ColorPalette.from_hex(["#FFD700", "#00BFFF", "#FF1493", "#7CFC00"])
@@ -26,9 +26,10 @@ class DetectionAnnotator:
     def __call__(self, frame: np.ndarray, detections: sv.Detections) -> np.ndarray:
         """Return an annotated copy of ``frame``."""
         out = frame.copy()
-        is_ball = detections.class_id == BALL
-        people, ball = detections[~is_ball], detections[is_ball]
-        labels = [f"{CLASS_NAMES[c]} {p:.2f}" for c, p in zip(people.class_id, people.confidence)]
+        is_ball = class_ids(detections) == BALL
+        people, ball = subset(detections, ~is_ball), subset(detections, is_ball)
+        conf = people.confidence if people.confidence is not None else np.ones(len(people))
+        labels = [f"{CLASS_NAMES[int(c)]} {p:.2f}" for c, p in zip(class_ids(people), conf, strict=True)]
         out = self.ellipse.annotate(out, people)
         out = self.label.annotate(out, people, labels=labels)
         return self.ball.annotate(out, ball)
@@ -54,8 +55,9 @@ class TrackAnnotator:
     ) -> np.ndarray:
         """Return an annotated copy of ``frame``."""
         out = frame.copy()
-        if len(people):
-            labels = [f"{ROLE_PREFIX.get(int(c), '')}#{t}" for c, t in zip(people.class_id, people.tracker_id)]
+        if len(people) and people.tracker_id is not None:
+            pairs = zip(class_ids(people), people.tracker_id, strict=True)
+            labels = [f"{ROLE_PREFIX.get(int(c), '')}#{t}" for c, t in pairs]
             out = self.ellipse.annotate(out, people)
             out = self.label.annotate(out, people, labels=labels)
         if len(ball):

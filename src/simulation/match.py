@@ -39,7 +39,7 @@ class MatchSimulation:
 
 def make_agents(template: PitchTemplate) -> list[Agent]:
     """Two mirrored 4-4-2 teams plus a referee."""
-    agents = []
+    agents: list[Agent] = []
     for team in (0, 1):
         for k, (x, y) in enumerate(FORMATION):
             bx = x if team == 0 else template.length - x
@@ -57,7 +57,7 @@ def _choose_receiver(
     want = team if rng.random() < same_team_p else 1 - team
     cands = [a.agent_id for a in agents if a.team == want and a.agent_id != holder and a.role == "player"]
     d = np.linalg.norm(pos[cands] - pos[holder], axis=1)
-    ok = [(c, dist) for c, dist in zip(cands, d) if 8 <= dist <= 35]
+    ok = [(c, dist) for c, dist in zip(cands, d, strict=True) if 8 <= dist <= 35]
     if not ok:
         return None
     ok.sort(key=lambda t: t[1])

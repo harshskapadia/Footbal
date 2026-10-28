@@ -11,7 +11,7 @@ import numpy as np
 import supervision as sv
 from ultralytics import YOLO
 
-from src.detection.classes import BALL, build_id_map, remap_detections
+from src.detection.classes import BALL, build_id_map, class_ids, remap_detections, subset
 from src.utils.config import resolve_path
 
 log = logging.getLogger(__name__)
@@ -41,8 +41,8 @@ def predict(
     model: YOLO, image: np.ndarray, conf: float, iou: float, imgsz: int, device: str
 ) -> sv.Detections:
     """Run a YOLO model on one BGR image and return raw ``sv.Detections``."""
-    result = model.predict(image, conf=conf, iou=iou, imgsz=imgsz, device=device, verbose=False)[0]
-    return sv.Detections.from_ultralytics(result)
+    results = model.predict(image, conf=conf, iou=iou, imgsz=imgsz, device=device, verbose=False)
+    return sv.Detections.from_ultralytics(list(results)[0])
 
 
 class ObjectDetector:
@@ -77,14 +77,14 @@ class ObjectDetector:
 
 def keep_best_ball(detections: sv.Detections) -> sv.Detections:
     """Keep only the most confident ball detection; other classes are untouched."""
-    is_ball = detections.class_id == BALL
-    if is_ball.sum() <= 1:
+    is_ball = class_ids(detections) == BALL
+    if int(is_ball.sum()) <= 1 or detections.confidence is None:
         return detections
     ball_idx = np.flatnonzero(is_ball)
     best = ball_idx[np.argmax(detections.confidence[ball_idx])]
     keep = ~is_ball
     keep[best] = True
-    return detections[keep]
+    return subset(detections, keep)
 
 
 def build_detector(cfg: Mapping[str, Any], device: str) -> ObjectDetector:

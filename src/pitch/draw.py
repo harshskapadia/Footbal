@@ -61,3 +61,33 @@ def draw_pitch(canvas: PitchCanvas = PitchCanvas(), stripes: bool = True, line_p
         cv2.circle(img, spot, max(2, thickness), LINE, -1, cv2.LINE_AA)
     cv2.circle(img, centre, max(2, thickness), LINE, -1, cv2.LINE_AA)
     return img
+
+
+def pitch_polylines(template: PitchTemplate, step_m: float = 1.0) -> list[np.ndarray]:
+    """Pitch markings as densely sampled polylines in metres (lines and centre circle)."""
+    v = template.vertices
+    lines = []
+    for a, b in template.edges:
+        n = max(2, int(np.linalg.norm(v[b - 1] - v[a - 1]) / step_m))
+        lines.append(np.linspace(v[a - 1], v[b - 1], n))
+    t = np.linspace(0, 2 * np.pi, 72)
+    centre = np.array([template.length / 2, template.width / 2])
+    lines.append(centre + template.centre_circle_radius * np.column_stack([np.cos(t), np.sin(t)]))
+    return lines
+
+
+def draw_pitch_overlay(
+    frame: np.ndarray, h_image_to_pitch: np.ndarray, template: PitchTemplate,
+    colour: tuple[int, int, int] = (255, 0, 255), thickness: int = 2,
+) -> np.ndarray:
+    """Project the pitch markings back into the frame to check a homography by eye."""
+    out = frame.copy()
+    h_inv = np.linalg.inv(h_image_to_pitch)
+    hgt, wid = frame.shape[:2]
+    for line in pitch_polylines(template):
+        pts = cv2.perspectiveTransform(line.reshape(-1, 1, 2), h_inv).reshape(-1, 2)
+        ok = np.isfinite(pts).all(axis=1) & (np.abs(pts) < 4 * max(wid, hgt)).all(axis=1)
+        pts = pts[ok]
+        if len(pts) >= 2:
+            cv2.polylines(out, [pts.round().astype(np.int32)], False, colour, thickness, cv2.LINE_AA)
+    return out

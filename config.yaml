@@ -70,7 +70,14 @@ teams:
 output:
   max_frames: null       # limit frames for quick runs (null = whole clip)
 
-# --- Used from later stages onwards --------------------------------------
 pitch:
   length_m: 105.0
   width_m: 68.0
+  keypoint_conf: 0.5            # ignore keypoints the model is less sure about
+  min_keypoints: 4              # a homography needs at least 4 point pairs
+  ransac_threshold_m: 1.0       # keypoints further than this from the fit are outliers
+  max_reprojection_error_m: 1.5 # reject a frame's homography above this mean error
+  smoothing_window: 7           # frames, centred (offline, so no lag during pans)
+  max_gap_frames: 25            # interpolate the mapping across frames with too few keypoints
+  smoothing_grid_y: [0.4, 0.95] # image rows (fraction of height) used to smooth the mapping
+  out_of_bounds_margin_m: 5.0   # positions further outside the pitch are discarded

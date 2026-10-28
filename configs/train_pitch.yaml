@@ -1,0 +1,20 @@
+# Fine-tune a YOLO pose model to find the 32 pitch keypoints.
+# Data: python -m src.detection.download_dataset --dataset pitch
+# Run:  python -m src.detection.train --config configs/train_pitch.yaml
+
+base_model: yolo11m-pose.pt
+data: data/datasets/football-field-detection-12/data.yaml
+export_to: models/football-pitch-detection.pt
+
+train:
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  patience: 30
+  mosaic: 0.0          # mosaic cuts the pitch apart; keypoints need the full view
+  fliplr: 0.0          # a horizontal flip would swap left/right keypoint labels
+  degrees: 0.0
+  workers: 4
+  project: runs/pose
+  name: football-pitch
+  plots: true

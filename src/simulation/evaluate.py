@@ -72,6 +72,29 @@ def team_metrics(teams: pd.DataFrame, track_agent: pd.Series, agents: pd.DataFra
     }
 
 
+def error_summary(err: np.ndarray) -> dict[str, float]:
+    """Mean, median and 95th percentile of an error array (NaNs ignored)."""
+    err = err[np.isfinite(err)]
+    if len(err) == 0:
+        return {"n": 0}
+    return {"n": int(len(err)), "mean_m": round(float(err.mean()), 3),
+            "median_m": round(float(np.median(err)), 3), "p95_m": round(float(np.percentile(err, 95)), 3)}
+
+
+def position_metrics(
+    positions: pd.DataFrame, ball_positions: pd.DataFrame, track_agent: pd.Series,
+    gt_positions: pd.DataFrame, gt_ball: pd.DataFrame,
+) -> dict[str, Any]:
+    """Distance in metres between projected and true positions of people and the ball."""
+    p = positions.assign(agent_id=positions["tracker_id"].map(track_agent)).dropna(subset=["agent_id", "x_m"])
+    p = p.merge(gt_positions, on=["frame", "agent_id"], suffixes=("", "_true"))
+    people = np.hypot(p["x_m"] - p["x_m_true"], p["y_m"] - p["y_m_true"]).to_numpy()
+    b = ball_positions.merge(gt_ball, on="frame", suffixes=("", "_true")).dropna(subset=["x_m"])
+    ball = np.hypot(b["x_m"] - b["x_m_true"], b["y_m"] - b["y_m_true"]).to_numpy()
+    return {"people": error_summary(people), "ball": error_summary(ball),
+            "people_coverage": round(len(p) / max(len(positions), 1), 3)}
+
+
 def evaluate(run: Path, truth: Path) -> dict[str, Any]:
     """Compute every metric whose outputs exist in ``run``."""
     gt = truth / "ground_truth"
@@ -82,6 +105,10 @@ def evaluate(run: Path, truth: Path) -> dict[str, Any]:
     report: dict[str, Any] = {"tracking": tracking_metrics(tracks, track_agent, gt_boxes)}
     if (run / "teams.csv").exists():
         report["teams"] = team_metrics(pd.read_csv(run / "teams.csv"), track_agent, agents)
+    if (run / "positions.csv").exists():
+        report["pitch_positions"] = position_metrics(
+            pd.read_csv(run / "positions.csv"), pd.read_csv(run / "ball_positions.csv"), track_agent,
+            pd.read_csv(gt / "positions.csv"), pd.read_csv(gt / "ball.csv"))
     return report
 
 

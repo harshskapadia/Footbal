@@ -13,7 +13,7 @@ heatmaps and a 2D minimap.
 | 2. Detection (YOLO, sliced ball inference, fine-tuning) | done |
 | 3. Tracking (ByteTrack, ball interpolation) | done |
 | 4. Team assignment (shirt colour K-means) | done |
-| 5. Pitch mapping (keypoints, homography) | todo |
+| 5. Pitch mapping (keypoints, homography) | done |
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | todo |
 | 7. Output (video, CSV, JSON) | todo |
 | 8. Streamlit dashboard | todo |
@@ -36,6 +36,7 @@ src/
   detect.py            stage 2 CLI: detection on a clip
   track.py             stage 3 CLI: tracking on a clip
   assign_teams.py      stage 4 CLI: team assignment
+  map_pitch.py         stage 5 CLI: pixels -> pitch metres
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -110,7 +111,10 @@ python -m src.detection.download_dataset --dataset players     # -> data/dataset
 python -m src.detection.train --config configs/train_detector.yaml
 ```
 
-The trained weights are copied to `models/football-player-detection.pt`.
+The trained weights are copied to `models/football-player-detection.pt`. For the
+pitch keypoint model, download `--dataset pitch` and train with
+`configs/train_pitch.yaml`. Mosaic augmentation and horizontal flips are turned off
+there because they would scramble the keypoint labels.
 
 ### 3. Without any downloads
 
@@ -225,3 +229,45 @@ frame. It also writes:
 The rendered figures are too simple for YOLO, so stages 3 onwards run on these
 simulated detections. That tests everything after detection against known answers.
 It is not evidence of how well the detector does on real footage.
+
+## Stage 5: pitch mapping
+
+```bash
+python -m src.map_pitch --input data/raw/0bfacc_0.mp4                  # uses models/football-pitch-detection.pt
+python -m src.map_pitch --input clip.mp4 --keypoints my_keypoints.csv  # or pre-computed keypoints
+```
+
+Outputs: `positions.csv` (`frame, tracker_id, team_id, role, x_px, y_px, x_m, y_m`),
+`ball_positions.csv`, `homographies.csv` (per-frame fit quality and the smoothed
+matrix), `keypoints.csv`, and `pitch_overlay.mp4`, which draws the pitch lines back
+onto each frame so you can check the mapping by eye.
+
+1. **Keypoints:** a YOLO pose model finds up to 32 pitch landmarks (corners, box
+   corners, penalty spots, centre-circle points), in the same order as Roboflow's
+   `football-field-detection` dataset. Keypoints below `keypoint_conf` are ignored.
+2. **Homography per frame:** `cv2.findHomography` with RANSAC (1 m threshold) maps
+   pixels to a 105×68 m template. A frame is rejected if it has fewer than 4 inliers
+   or a mean reprojection error above 1.5 m.
+3. **Smoothing over time.** Each homography is represented by where a fixed grid of
+   12 image points lands on the pitch. Those trajectories are interpolated across
+   gaps of up to 1 s, passed through a centred rolling median to remove one-frame
+   glitches, then a centred rolling mean to remove jitter. A homography is then refit
+   for every frame. The whole clip is processed offline, so the centred windows add
+   no lag while the camera pans.
+4. **Projection:** each player is projected from the bottom-centre of their box (the
+   feet) and the ball from the bottom of its box. Points more than 5 m outside the
+   pitch are discarded.
+
+On the synthetic match (panning and zooming camera, 1.5 px keypoint noise, 10%
+missing keypoints):
+
+| | People, mean / p95 error | Ball, mean / p95 error |
+|---|---|---|
+| Per-frame homography only | 0.71 m / 0.60 m | 0.88 m / 0.86 m |
+| With temporal smoothing | **0.14 m / 0.32 m** | **0.09 m / 0.19 m** |
+
+(The ball row without smoothing also projected from the box centre, an error fixed
+at the same time.)
+
+If no pitch model or keypoints are available, the command stops and explains what to
+download.

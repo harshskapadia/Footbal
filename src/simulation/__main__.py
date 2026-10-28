@@ -100,15 +100,19 @@ def write_ground_truth(sim: MatchSimulation, gt_boxes: list[dict], out: Path) ->
 
 
 def generate(out_video: Path, seconds: float = 10.0, fps: float = 25.0, seed: int = 0,
-             size: tuple[int, int] = (1280, 720)) -> Path:
-    """Simulate, render and save a synthetic match. Returns the folder with CSVs."""
+             size: tuple[int, int] = (1280, 720), data_dir: Path | None = None) -> Path:
+    """Simulate, render and save a synthetic match.
+
+    Returns:
+        The folder with the CSVs (default ``data/synthetic/<video stem>/``).
+    """
     rng = np.random.default_rng(seed)
     template = PitchTemplate()
     n_frames = int(seconds * fps)
     sim = simulate_match(n_frames, fps, seed, template)
     homographies = camera_homographies(sim.ball, fps, size, template)
 
-    data_dir = resolve_path("data/synthetic") / out_video.stem
+    data_dir = data_dir or resolve_path("data/synthetic") / out_video.stem
     data_dir.mkdir(parents=True, exist_ok=True)
     out_video.parent.mkdir(parents=True, exist_ok=True)
     writer = cv2.VideoWriter(str(out_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)

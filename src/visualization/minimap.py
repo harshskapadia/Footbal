@@ -44,7 +44,7 @@ class Minimap:
         return img
 
 
-def overlay(frame: np.ndarray, image: np.ndarray, width_frac: float = 0.32, margin: int = 16,
+def overlay(frame: np.ndarray, image: np.ndarray, width_frac: float = 0.28, margin: int = 16,
             alpha: float = 0.9) -> np.ndarray:
     """Blend ``image`` into the bottom-centre of ``frame``, scaled to ``width_frac`` of its width."""
     h, w = frame.shape[:2]

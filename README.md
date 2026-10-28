@@ -15,7 +15,7 @@ heatmaps and a 2D minimap.
 | 4. Team assignment (shirt colour K-means) | done |
 | 5. Pitch mapping (keypoints, homography) | done |
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | done |
-| 7. Output (video, CSV, JSON) | todo |
+| 7. Output (video, CSV, JSON) | done |
 | 8. Streamlit dashboard | todo |
 | 9. Tests, typing, CLI | todo |
 | 10. Documentation | todo |
@@ -39,6 +39,8 @@ src/
   assign_teams.py      stage 4 CLI: team assignment
   map_pitch.py         stage 5 CLI: pixels -> pitch metres
   analyze.py           stage 6 CLI: match statistics and charts
+  pipeline.py          chains all stages; degrades gracefully without the pitch model
+  run.py               full pipeline CLI: python -m src.run --input clip.mp4
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -311,3 +313,28 @@ python -m src.analyze --input data/raw/0bfacc_0.mp4
 Charts use one sequential blue ramp for magnitude, and fixed, colour-blind-checked
 team colours (team 0 blue `#2a78d6`, team 1 orange `#eb6834`). Kit colours aren't
 used in charts because a white or green kit would disappear against the background.
+
+## Stage 7: full pipeline and outputs
+
+```bash
+python -m src.run --input data/raw/0bfacc_0.mp4              # everything, written to outputs/0bfacc_0/
+python -m src.run --input clip.mp4 --max-frames 250 --device cpu
+python -m src.run --input data/raw/synthetic_match.mp4 \
+    --detections data/synthetic/synthetic_match/detections.csv \
+    --keypoints  data/synthetic/synthetic_match/keypoints.csv
+```
+
+- `annotated.mp4`: players in their team's kit colour with ID and live speed, a gold
+  marker on the player in possession, the ball (orange when interpolated), a running
+  possession bar, and the 2D minimap.
+- `annotated_h264.mp4`: the same video re-encoded to H.264 with the ffmpeg bundled in
+  `imageio-ffmpeg`, so browsers and the dashboard can play it. OpenCV's pip build
+  can only write `mp4v`.
+- `stats.json`: possession %, passes per team, distance and top speed per team, top
+  5 players by distance, team kit colours, and any warnings.
+- `team_summary.csv`, `player_stats.csv`, `passes.csv`, `possession.csv`, plus every
+  intermediate CSV from stages 2–5.
+
+If the pitch keypoint model is missing, the run still finishes. Possession and passes
+are measured in pixels, the metric outputs are skipped, and the reason is shown in the
+warnings.

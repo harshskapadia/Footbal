@@ -83,6 +83,15 @@ def test_passing_network_counts_pairs() -> None:
     assert sorted(nodes["tracker_id"]) == [1, 2]
 
 
+def test_passing_network_for_team_without_passes() -> None:
+    passes = pd.DataFrame(columns=["frame_start", "frame_end", "from_id", "to_id", "team", "to_team",
+                                   "completed", "distance_m"])
+    positions = pd.DataFrame({"tracker_id": [1], "team_id": [0], "x_m": [10.0], "y_m": [30.0]})
+    nodes, edges = passing_network(passes, positions, team=0)
+    assert list(nodes.columns) == ["tracker_id", "x_m", "y_m", "passes"] and nodes.empty and edges.empty
+    assert plot_passing_network(nodes, edges, PitchTemplate(), 0, "A") is not None
+
+
 def test_speed_and_distance_of_constant_run() -> None:
     # 5 m/s (18 km/h) along x for 4 s, with a 1-frame-long position glitch
     f = np.arange(100)

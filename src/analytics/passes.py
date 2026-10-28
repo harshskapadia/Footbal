@@ -82,7 +82,9 @@ def passing_network(passes: pd.DataFrame, positions: pd.DataFrame, team: int) ->
     done = passes[(passes["team"] == team) & passes["completed"]]
     pairs = pd.DataFrame({"a": done[["from_id", "to_id"]].min(axis=1), "b": done[["from_id", "to_id"]].max(axis=1)})
     edges = pairs.value_counts().rename("count").reset_index().rename(columns={"a": "from_id", "b": "to_id"})
-    involved = pd.concat([done["from_id"], done["to_id"]]).value_counts().rename("passes")
+    involved = pd.concat([done["from_id"], done["to_id"]]).value_counts()
     mean_pos = positions[positions["team_id"] == team].groupby("tracker_id")[["x_m", "y_m"]].mean()
-    nodes = mean_pos.join(involved, how="inner").reset_index()
+    ids = [t for t in involved.index if t in mean_pos.index]
+    nodes = pd.DataFrame({"tracker_id": ids, "x_m": mean_pos.loc[ids, "x_m"].to_numpy(),
+                          "y_m": mean_pos.loc[ids, "y_m"].to_numpy(), "passes": involved.loc[ids].to_numpy()})
     return nodes, edges

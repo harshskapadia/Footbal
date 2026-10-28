@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 def has_pitch_positions(positions: pd.DataFrame, min_fraction: float = 0.5) -> bool:
     """True if most rows were mapped to pitch metres."""
-    return "x_m" in positions and positions["x_m"].notna().mean() >= min_fraction
+    return bool("x_m" in positions and positions["x_m"].notna().mean() >= min_fraction)
 
 
 def team_stats(stats: pd.DataFrame) -> dict[int, dict[str, float]]:

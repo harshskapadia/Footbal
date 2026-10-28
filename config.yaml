@@ -43,6 +43,19 @@ ball:
   iou: 0.1
   imgsz: 640
 
+tracking:
+  # ByteTrack (roboflow `trackers` package). A new track needs confidence above
+  # both thresholds below, so keep them close to detection.conf.
+  high_conf_det_threshold: 0.4
+  track_activation_threshold: 0.4
+  minimum_consecutive_frames: 2   # frames before a new ID is confirmed
+  lost_track_buffer_s: 2.0        # keep a lost player's ID alive this long (occlusions)
+  minimum_iou_threshold: 0.1
+
+ball_interpolation:
+  max_gap_frames: 25              # fill gaps up to ~1 s at 25 fps; longer gaps stay empty
+  max_speed_px_per_frame: 80      # a detection this far from BOTH neighbours is a false positive
+
 output:
   max_frames: null       # limit frames for quick runs (null = whole clip)
 

@@ -32,3 +32,32 @@ class DetectionAnnotator:
         out = self.ellipse.annotate(out, people)
         out = self.label.annotate(out, people, labels=labels)
         return self.ball.annotate(out, ball)
+
+
+ROLE_PREFIX = {1: "GK ", 2: "", 3: "REF "}  # goalkeeper, player, referee
+
+
+class TrackAnnotator:
+    """Draw tracked people with their IDs, and the ball (orange when interpolated)."""
+
+    def __init__(self) -> None:
+        self.ellipse = sv.EllipseAnnotator(thickness=2, color_lookup=sv.ColorLookup.TRACK)
+        self.label = sv.LabelAnnotator(
+            text_color=sv.Color.BLACK, text_scale=0.45, text_padding=3,
+            text_position=sv.Position.BOTTOM_CENTER, color_lookup=sv.ColorLookup.TRACK,
+        )
+        self.ball = sv.TriangleAnnotator(color=sv.Color.from_hex("#FFD700"), base=18, height=15)
+        self.ball_interp = sv.TriangleAnnotator(color=sv.Color.from_hex("#FF8C00"), base=18, height=15)
+
+    def __call__(
+        self, frame: np.ndarray, people: sv.Detections, ball: sv.Detections, ball_interpolated: bool = False
+    ) -> np.ndarray:
+        """Return an annotated copy of ``frame``."""
+        out = frame.copy()
+        if len(people):
+            labels = [f"{ROLE_PREFIX.get(int(c), '')}#{t}" for c, t in zip(people.class_id, people.tracker_id)]
+            out = self.ellipse.annotate(out, people)
+            out = self.label.annotate(out, people, labels=labels)
+        if len(ball):
+            out = (self.ball_interp if ball_interpolated else self.ball).annotate(out, ball)
+        return out

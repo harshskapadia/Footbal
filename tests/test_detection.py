@@ -3,9 +3,10 @@
 import numpy as np
 import supervision as sv
 
-from src.detect import detect_frame, detections_to_rows
+from src.detect import detect_frame
 from src.detection.classes import BALL, GOALKEEPER, PLAYER, REFEREE, build_id_map, remap_detections
 from src.detection.detector import keep_best_ball
+from src.detection.io import detections_to_rows, rows_to_detections
 from src.utils.config import load_config
 
 COCO_NAMES = {0: "person", 1: "bicycle", 32: "sports ball"}
@@ -81,3 +82,14 @@ def test_sliced_ball_detector_maps_tiles_to_frame(monkeypatch) -> None:
     out = detector(frame)
     assert out.class_id.tolist() == [BALL]
     np.testing.assert_allclose(out.xyxy[0], [1500, 700, 1510, 710])
+
+
+def test_rows_round_trip() -> None:
+    dets = make_detections([PLAYER, REFEREE], [0.9, 0.8])
+    dets.tracker_id = np.array([4, 7])
+    import pandas as pd
+
+    back = rows_to_detections(pd.DataFrame(detections_to_rows(0, dets)))
+    np.testing.assert_allclose(back.xyxy, dets.xyxy)
+    assert back.class_id.tolist() == [PLAYER, REFEREE]
+    assert back.tracker_id.tolist() == [4, 7]

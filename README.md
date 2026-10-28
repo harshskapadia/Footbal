@@ -11,7 +11,7 @@ heatmaps and a 2D minimap.
 |---|---|
 | 1. Setup (structure, config, env) | done |
 | 2. Detection (YOLO, sliced ball inference, fine-tuning) | done |
-| 3. Tracking (ByteTrack, ball interpolation) | todo |
+| 3. Tracking (ByteTrack, ball interpolation) | done |
 | 4. Team assignment (shirt colour K-means) | todo |
 | 5. Pitch mapping (keypoints, homography) | todo |
 | 6. Analytics (possession, speed, heatmaps, passes, minimap) | todo |
@@ -28,7 +28,10 @@ configs/               training configs
 src/
   utils/               config, device selection, video I/O
   detection/           detector, sliced ball inference, dataset download, training
+  tracking/            ByteTrack wrapper, ball outlier removal and interpolation
+  visualization/       frame annotators
   detect.py            stage 2 CLI: detection on a clip
+  track.py             stage 3 CLI: tracking on a clip
 data/raw/              input clips (not committed)
 data/datasets/         Roboflow training datasets (not committed)
 models/                model weights (not committed)
@@ -140,3 +143,34 @@ The ball is often only 5–15 px wide in broadcast footage. With `ball.use_slici
 on, each frame is cut into overlapping 640×640 tiles (`supervision.InferenceSlicer`).
 The ball model runs on every tile, the results are merged with NMS, and the most
 confident ball is kept.
+
+## Stage 3: tracking
+
+```bash
+# Reuse stage 2 detections (fast, no model needed)
+python -m src.track --input data/raw/0bfacc_0.mp4 --detections outputs/0bfacc_0_detections.csv
+# Or detect and track in one go
+python -m src.track --input data/raw/0bfacc_0.mp4 --max-frames 150
+```
+
+Outputs:
+- `outputs/<clip>_tracks.mp4`: people with stable IDs (`#7`, `GK #3`, `REF #12`),
+  ball in yellow when detected and orange when interpolated
+- `outputs/<clip>_tracks.csv`: stage 2 columns plus `tracker_id`
+- `outputs/<clip>_ball.csv`: one row per frame (`frame, x1, y1, x2, y2, confidence, interpolated`)
+
+How it works:
+- **People** are tracked with ByteTrack from Roboflow's
+  [`trackers`](https://github.com/roboflow/trackers) package. ByteTrack moved out of
+  `supervision` in later releases, and `trackers` works directly on `sv.Detections`.
+  A lost ID is kept alive for `tracking.lost_track_buffer_s` (2 s), so short
+  occlusions don't create new IDs. Each track's role (player, goalkeeper or referee)
+  is decided by a majority vote over all its frames, which removes per-frame
+  class flicker.
+- **The ball** is not tracked by ByteTrack because it is too small, too fast and
+  too often missing. Instead it is cleaned in two steps:
+  1. **Outlier removal:** a detection that implies a speed above
+     `max_speed_px_per_frame` relative to *both* neighbouring detections is
+     dropped as a false positive (for example a white boot or a pitch marking).
+  2. **Interpolation:** gaps of up to `max_gap_frames` (1 s) are filled linearly.
+     Longer gaps and the start and end of the clip are left empty rather than guessed.

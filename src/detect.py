@@ -15,8 +15,9 @@ import pandas as pd
 import supervision as sv
 from tqdm import tqdm
 
-from src.detection.classes import BALL, CLASS_NAMES
+from src.detection.classes import BALL
 from src.detection.detector import ObjectDetector, build_detector, keep_best_ball
+from src.detection.io import CSV_COLUMNS, detections_to_rows
 from src.detection.slicing import SlicedBallDetector, build_ball_detector
 from src.utils.config import load_config, resolve_path
 from src.utils.device import select_device
@@ -24,7 +25,6 @@ from src.utils.video import get_video_info, open_writer, read_frames
 from src.visualization.draw import DetectionAnnotator
 
 log = logging.getLogger(__name__)
-CSV_COLUMNS = ["frame", "class_id", "class_name", "confidence", "x1", "y1", "x2", "y2"]
 
 
 def detect_frame(
@@ -41,19 +41,6 @@ def detect_frame(
         if len(sliced_ball):
             detections = sv.Detections.merge([detections[detections.class_id != BALL], sliced_ball])
     return keep_best_ball(detections)
-
-
-def detections_to_rows(frame_idx: int, detections: sv.Detections) -> list[dict]:
-    """Flatten detections into CSV rows."""
-    return [
-        {
-            "frame": frame_idx, "class_id": int(c), "class_name": CLASS_NAMES[int(c)],
-            "confidence": round(float(p), 4),
-            "x1": round(float(b[0]), 1), "y1": round(float(b[1]), 1),
-            "x2": round(float(b[2]), 1), "y2": round(float(b[3]), 1),
-        }
-        for b, c, p in zip(detections.xyxy, detections.class_id, detections.confidence)
-    ]
 
 
 def run_detection(

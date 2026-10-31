@@ -83,6 +83,8 @@ def main(argv: list[str] | None = None) -> None:
             clip = args.out_dir / f"{name}_h{half}_{int(t // 60):02d}m{int(t % 60):02d}s_{label.replace(' ', '')}.mp4"
             cut(video, t - args.before, length, clip)
     else:
+        if not args.video.exists():
+            raise SystemExit(f"Video not found: {args.video}. Check that the download worked.")
         if not args.at:
             raise SystemExit("Give one or more times with --at, e.g. --at 12:30 55:10")
         for stamp in args.at:
